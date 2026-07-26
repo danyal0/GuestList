@@ -21,30 +21,25 @@
 
 ## Quick start
 
-Prerequisites: Node 20+, Docker (or a local PostgreSQL 16).
+Prerequisites: Node 20+. Postgres is optional — by default the API uses file mock data in `apps/api/data/mock-db.json`.
 
 ```bash
 # 1. Install dependencies
 npm install
 
-# 2. Start PostgreSQL (or use your own and set DATABASE_URL)
-docker compose up db -d
-
-# 3. Configure the API
+# 2. (Optional) Configure the API — defaults use file data + Railway URL
 cp apps/api/.env.example apps/api/.env
 
-# 4. Migrate and seed
-npm run db:migrate
-npm run db:seed
-
-# 5. Run API (:4000) + Web (:3000) together
+# 3. Run API (:4000) + Web (:3000) together
 npm run dev
 ```
 
-Open http://localhost:3000. Seeded demo accounts (password `Passw0rd!demo`):
+Open http://localhost:3000. Demo accounts (password `Passw0rd!`):
 
-- `maya@gatherly.dev` — platform admin
-- `liam@gatherly.dev`, `sofia@gatherly.dev`, … — regular members
+- `maya@example.com` — member
+- `admin@gatherly.app` — platform admin
+
+To use Postgres instead: set `DATA_SOURCE=postgres`, start DB (`docker compose up db -d`), then `npm run db:migrate && npm run db:seed`.
 
 ### Full stack via Docker
 

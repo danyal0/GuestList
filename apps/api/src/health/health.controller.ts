@@ -11,6 +11,9 @@ export class HealthController {
   @Public()
   @Get()
   async check(): Promise<{ status: string; database: string; uptime: number }> {
+    if (this.prisma.isFileMode()) {
+      return { status: 'ok', database: 'file', uptime: process.uptime() };
+    }
     try {
       await this.prisma.$queryRaw`SELECT 1`;
       return { status: 'ok', database: 'up', uptime: process.uptime() };

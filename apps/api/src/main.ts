@@ -11,7 +11,10 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: false });
 
-  const corsOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
+  const corsOrigins = (
+    process.env.CORS_ORIGINS ??
+    'https://mkeplays-production.up.railway.app,http://localhost:3000,http://localhost:8080'
+  )
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);

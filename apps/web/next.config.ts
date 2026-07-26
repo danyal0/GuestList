@@ -1,6 +1,7 @@
 import type { NextConfig } from 'next';
 
-const API_URL = process.env.API_URL ?? 'http://localhost:4000';
+// Single-service proxy uses loopback; split deploys set API_URL explicitly.
+const API_URL = process.env.API_URL ?? 'http://127.0.0.1:4000';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
