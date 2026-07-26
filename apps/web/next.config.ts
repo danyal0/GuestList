@@ -5,6 +5,8 @@ const API_URL = process.env.API_URL ?? 'http://localhost:4000';
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Self-contained server bundle for Docker/Railway deploys.
+  output: 'standalone',
   images: {
     // Uploaded/CDN images come from the API host and arbitrary CDNs.
     remotePatterns: [{ protocol: 'https', hostname: '**' }, { protocol: 'http', hostname: 'localhost' }],
