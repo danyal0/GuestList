@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",
-    "start": "next start --hostname 0.0.0.0",
+    "start": "node scripts/start-prod.cjs",
+    "start:next": "next start --hostname 0.0.0.0",
     "lint": "eslint .",
     "test": "jest",
     "test:cov": "jest --coverage",

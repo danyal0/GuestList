@@ -163,9 +163,12 @@ async function main() {
   spawnProcess('api', 'npm', ['run', 'start:prod', '-w', 'apps/api'], {
     PORT: String(API_PORT),
   });
+  // Next `output: "standalone"` — must run traced server.js, not `next start`.
   spawnProcess('web', 'npm', ['run', 'start', '-w', 'apps/web'], {
     PORT: String(WEB_PORT),
     HOSTNAME: '0.0.0.0',
+    // Keep Next rewrites pointed at the internal API, not the public URL.
+    API_URL: process.env.INTERNAL_API_URL || `http://127.0.0.1:${API_PORT}`,
   });
 
   log(`waiting for api :${API_PORT} and web :${WEB_PORT}`);
