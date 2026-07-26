@@ -10,6 +10,20 @@ import { spawn } from 'node:child_process';
 import http from 'node:http';
 import net from 'node:net';
 
+const PUBLIC_URL = process.env.PUBLIC_URL || 'https://mkeplays-production.up.railway.app';
+
+// Defaults for a single Railway service with file-backed mock data.
+process.env.DATA_SOURCE ??= 'file';
+process.env.NODE_ENV ??= 'production';
+process.env.PUBLIC_URL ??= PUBLIC_URL;
+process.env.WEB_URL ??= PUBLIC_URL;
+process.env.API_URL ??= PUBLIC_URL;
+process.env.CORS_ORIGINS ??= PUBLIC_URL;
+process.env.COOKIE_SECURE ??= 'true';
+process.env.NEXT_PUBLIC_SITE_URL ??= PUBLIC_URL;
+process.env.JWT_ACCESS_SECRET ??= 'mkeplays-dev-access-secret-change-me-32b';
+process.env.JWT_REFRESH_SECRET ??= 'mkeplays-dev-refresh-secret-change-me-32b';
+
 const PUBLIC_PORT = Number(process.env.PORT || 8080);
 const API_PORT = Number(process.env.INTERNAL_API_PORT || 4000);
 const WEB_PORT = Number(process.env.INTERNAL_WEB_PORT || 3000);

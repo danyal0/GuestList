@@ -1,3 +1,5 @@
+import { DEFAULT_JWT_ACCESS_SECRET, DEFAULT_JWT_REFRESH_SECRET, DEFAULT_PUBLIC_URL } from './defaults';
+
 export interface AppConfig {
   nodeEnv: string;
   port: number;
@@ -22,20 +24,24 @@ export interface AppConfig {
   uploads: { maxBytes: number };
 }
 
+const publicUrl = process.env.PUBLIC_URL || process.env.WEB_URL || DEFAULT_PUBLIC_URL;
+
+const nodeEnv = process.env.NODE_ENV ?? 'development';
+
 export default (): AppConfig => ({
-  nodeEnv: process.env.NODE_ENV ?? 'development',
+  nodeEnv,
   port: Number(process.env.PORT ?? 4000),
-  apiUrl: process.env.API_URL ?? 'http://localhost:4000',
-  webUrl: process.env.WEB_URL ?? 'http://localhost:3000',
+  apiUrl: process.env.API_URL ?? publicUrl,
+  webUrl: process.env.WEB_URL ?? publicUrl,
   database: { url: process.env.DATABASE_URL ?? '' },
   jwt: {
-    accessSecret: process.env.JWT_ACCESS_SECRET ?? 'dev-access-secret',
-    refreshSecret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh-secret',
+    accessSecret: DEFAULT_JWT_ACCESS_SECRET,
+    refreshSecret: DEFAULT_JWT_REFRESH_SECRET,
     accessTtlSeconds: Number(process.env.JWT_ACCESS_TTL ?? 900),
     refreshTtlSeconds: Number(process.env.JWT_REFRESH_TTL ?? 60 * 60 * 24 * 30),
   },
   cookies: {
-    secure: process.env.COOKIE_SECURE === 'true',
+    secure: (process.env.COOKIE_SECURE ?? (nodeEnv === 'production' ? 'true' : 'false')) === 'true',
     domain: process.env.COOKIE_DOMAIN || undefined,
   },
   oauth: {

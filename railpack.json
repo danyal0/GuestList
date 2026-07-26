@@ -3,6 +3,18 @@
   "buildAptPackages": ["openssl"],
   "deploy": {
     "startCommand": "npm start",
-    "aptPackages": ["openssl"]
+    "aptPackages": ["openssl"],
+    "variables": {
+      "DATA_SOURCE": "file",
+      "NODE_ENV": "production",
+      "PUBLIC_URL": "https://mkeplays-production.up.railway.app",
+      "WEB_URL": "https://mkeplays-production.up.railway.app",
+      "API_URL": "https://mkeplays-production.up.railway.app",
+      "CORS_ORIGINS": "https://mkeplays-production.up.railway.app",
+      "COOKIE_SECURE": "true",
+      "NEXT_PUBLIC_SITE_URL": "https://mkeplays-production.up.railway.app",
+      "JWT_ACCESS_SECRET": "mkeplays-dev-access-secret-change-me-32b",
+      "JWT_REFRESH_SECRET": "mkeplays-dev-refresh-secret-change-me-32b"
+    }
   }
 }

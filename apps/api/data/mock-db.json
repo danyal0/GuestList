@@ -1,0 +1,956 @@
+{
+  "meta": {
+    "version": 1,
+    "passwordHint": "Passw0rd!",
+    "generatedAt": "2026-07-26T04:04:16.594Z"
+  },
+  "users": [
+    {
+      "id": "user_admin",
+      "email": "admin@gatherly.app",
+      "name": "Avery Admin",
+      "role": "ADMIN",
+      "location": "San Francisco, CA",
+      "latitude": 37.7749,
+      "longitude": -122.4194,
+      "interests": [
+        "technology",
+        "community"
+      ],
+      "skills": [
+        "moderation"
+      ],
+      "passwordHash": "$argon2id$v=19$m=65536,t=3,p=4$tTRMmaSISth5PYlf74SrgA$yjhFazqInsDYlOR7qxKHmc727SI8FBQIu8uGsSFKrGQ",
+      "avatarUrl": null,
+      "bio": null,
+      "emailVerifiedAt": "2026-06-26T04:04:16.594Z",
+      "suspendedAt": null,
+      "deletedAt": null,
+      "createdAt": "2026-06-16T04:04:16.594Z",
+      "updatedAt": "2026-06-16T04:04:16.594Z"
+    },
+    {
+      "id": "user_maya",
+      "email": "maya@example.com",
+      "name": "Maya Chen",
+      "role": "USER",
+      "location": "San Francisco, CA",
+      "latitude": 37.7793,
+      "longitude": -122.4192,
+      "interests": [
+        "photography",
+        "hiking",
+        "technology"
+      ],
+      "skills": [
+        "photo editing",
+        "javascript"
+      ],
+      "passwordHash": "$argon2id$v=19$m=65536,t=3,p=4$tTRMmaSISth5PYlf74SrgA$yjhFazqInsDYlOR7qxKHmc727SI8FBQIu8uGsSFKrGQ",
+      "avatarUrl": null,
+      "bio": null,
+      "emailVerifiedAt": "2026-06-26T04:04:16.594Z",
+      "suspendedAt": null,
+      "deletedAt": null,
+      "createdAt": "2026-06-17T04:04:16.594Z",
+      "updatedAt": "2026-06-17T04:04:16.594Z"
+    },
+    {
+      "id": "user_diego",
+      "email": "diego@example.com",
+      "name": "Diego Ramirez",
+      "role": "USER",
+      "location": "Oakland, CA",
+      "latitude": 37.8044,
+      "longitude": -122.2712,
+      "interests": [
+        "soccer",
+        "cooking",
+        "music"
+      ],
+      "skills": [
+        "guitar",
+        "spanish"
+      ],
+      "passwordHash": "$argon2id$v=19$m=65536,t=3,p=4$tTRMmaSISth5PYlf74SrgA$yjhFazqInsDYlOR7qxKHmc727SI8FBQIu8uGsSFKrGQ",
+      "avatarUrl": null,
+      "bio": null,
+      "emailVerifiedAt": "2026-06-26T04:04:16.594Z",
+      "suspendedAt": null,
+      "deletedAt": null,
+      "createdAt": "2026-06-18T04:04:16.594Z",
+      "updatedAt": "2026-06-18T04:04:16.594Z"
+    },
+    {
+      "id": "user_priya",
+      "email": "priya@example.com",
+      "name": "Priya Sharma",
+      "role": "USER",
+      "location": "San Jose, CA",
+      "latitude": 37.3382,
+      "longitude": -121.8863,
+      "interests": [
+        "machine learning",
+        "books",
+        "yoga"
+      ],
+      "skills": [
+        "python",
+        "public speaking"
+      ],
+      "passwordHash": "$argon2id$v=19$m=65536,t=3,p=4$tTRMmaSISth5PYlf74SrgA$yjhFazqInsDYlOR7qxKHmc727SI8FBQIu8uGsSFKrGQ",
+      "avatarUrl": null,
+      "bio": null,
+      "emailVerifiedAt": "2026-06-26T04:04:16.594Z",
+      "suspendedAt": null,
+      "deletedAt": null,
+      "createdAt": "2026-06-19T04:04:16.594Z",
+      "updatedAt": "2026-06-19T04:04:16.594Z"
+    },
+    {
+      "id": "user_sam",
+      "email": "sam@example.com",
+      "name": "Sam Okafor",
+      "role": "USER",
+      "location": "Berkeley, CA",
+      "latitude": 37.8715,
+      "longitude": -122.273,
+      "interests": [
+        "climbing",
+        "board games",
+        "technology"
+      ],
+      "skills": [
+        "route setting",
+        "rust"
+      ],
+      "passwordHash": "$argon2id$v=19$m=65536,t=3,p=4$tTRMmaSISth5PYlf74SrgA$yjhFazqInsDYlOR7qxKHmc727SI8FBQIu8uGsSFKrGQ",
+      "avatarUrl": null,
+      "bio": null,
+      "emailVerifiedAt": "2026-06-26T04:04:16.594Z",
+      "suspendedAt": null,
+      "deletedAt": null,
+      "createdAt": "2026-06-20T04:04:16.594Z",
+      "updatedAt": "2026-06-20T04:04:16.594Z"
+    },
+    {
+      "id": "user_leo",
+      "email": "leo@example.com",
+      "name": "Leo Fischer",
+      "role": "USER",
+      "location": "San Francisco, CA",
+      "latitude": 37.7599,
+      "longitude": -122.4148,
+      "interests": [
+        "film",
+        "photography",
+        "coffee"
+      ],
+      "skills": [
+        "color grading",
+        "german"
+      ],
+      "passwordHash": "$argon2id$v=19$m=65536,t=3,p=4$tTRMmaSISth5PYlf74SrgA$yjhFazqInsDYlOR7qxKHmc727SI8FBQIu8uGsSFKrGQ",
+      "avatarUrl": null,
+      "bio": null,
+      "emailVerifiedAt": "2026-06-26T04:04:16.594Z",
+      "suspendedAt": null,
+      "deletedAt": null,
+      "createdAt": "2026-06-21T04:04:16.594Z",
+      "updatedAt": "2026-06-21T04:04:16.594Z"
+    }
+  ],
+  "refreshTokens": [],
+  "emailTokens": [],
+  "groups": [
+    {
+      "id": "group_trails",
+      "slug": "bay-area-trail-collective",
+      "name": "Bay Area Trail Collective",
+      "description": "Weekly hikes across the Bay Area — from casual Golden Gate strolls to full-day Marin Headlands treks. All paces welcome; we never leave anyone behind.",
+      "category": "OUTDOORS",
+      "privacy": "PUBLIC",
+      "location": "San Francisco, CA",
+      "latitude": 37.7694,
+      "longitude": -122.4862,
+      "ownerId": "user_maya",
+      "rules": "1. RSVP honestly so we can plan carpools.\n2. Pack out what you pack in.\n3. Be kind to slower hikers.",
+      "isVerified": false,
+      "memberCount": 5,
+      "coverImage": null,
+      "deletedAt": null,
+      "createdAt": "2026-07-06T04:04:16.594Z",
+      "updatedAt": "2026-07-06T04:04:16.594Z"
+    },
+    {
+      "id": "group_ml",
+      "slug": "sf-machine-learning-guild",
+      "name": "SF Machine Learning Guild",
+      "description": "Paper readings, hands-on workshops and lightning talks for ML practitioners of every level. We meet twice a month and stream every session.",
+      "category": "TECHNOLOGY",
+      "privacy": "PUBLIC",
+      "location": "San Francisco, CA",
+      "latitude": 37.7825,
+      "longitude": -122.3959,
+      "ownerId": "user_priya",
+      "rules": "Be curious, cite your sources, no recruiting pitches during sessions.",
+      "isVerified": true,
+      "memberCount": 5,
+      "coverImage": null,
+      "deletedAt": null,
+      "createdAt": "2026-07-06T04:04:16.594Z",
+      "updatedAt": "2026-07-06T04:04:16.594Z"
+    },
+    {
+      "id": "group_photo",
+      "slug": "golden-hour-photography",
+      "name": "Golden Hour Photography",
+      "description": "Photo walks at sunrise and sunset, monthly critique circles, and an annual zine. Film shooters and phone photographers equally loved.",
+      "category": "PHOTOGRAPHY",
+      "privacy": "PUBLIC",
+      "location": "San Francisco, CA",
+      "latitude": 37.8087,
+      "longitude": -122.4098,
+      "ownerId": "user_leo",
+      "rules": null,
+      "isVerified": false,
+      "memberCount": 5,
+      "coverImage": null,
+      "deletedAt": null,
+      "createdAt": "2026-07-06T04:04:16.594Z",
+      "updatedAt": "2026-07-06T04:04:16.594Z"
+    },
+    {
+      "id": "group_futbol",
+      "slug": "east-bay-futbol-club",
+      "name": "East Bay Fútbol Club",
+      "description": "Pick-up soccer every Saturday morning at Bushrod Park. Co-ed, friendly, competitive-ish. First game is free, then we split field costs.",
+      "category": "SPORTS",
+      "privacy": "PUBLIC",
+      "location": "Oakland, CA",
+      "latitude": 37.8349,
+      "longitude": -122.2681,
+      "ownerId": "user_diego",
+      "rules": null,
+      "isVerified": false,
+      "memberCount": 5,
+      "coverImage": null,
+      "deletedAt": null,
+      "createdAt": "2026-07-06T04:04:16.594Z",
+      "updatedAt": "2026-07-06T04:04:16.594Z"
+    },
+    {
+      "id": "group_books",
+      "slug": "founders-book-circle",
+      "name": "Founders Book Circle",
+      "description": "A private reading group for startup founders and operators. One book a month, honest discussion, Chatham House rules.",
+      "category": "BOOKS",
+      "privacy": "PRIVATE",
+      "location": "San Francisco, CA",
+      "latitude": 37.7936,
+      "longitude": -122.3965,
+      "ownerId": "user_sam",
+      "rules": "What is said in the circle stays in the circle.",
+      "isVerified": false,
+      "memberCount": 1,
+      "coverImage": null,
+      "deletedAt": null,
+      "createdAt": "2026-07-06T04:04:16.594Z",
+      "updatedAt": "2026-07-06T04:04:16.594Z"
+    }
+  ],
+  "groupMembers": [
+    {
+      "id": "gm_1",
+      "groupId": "group_trails",
+      "userId": "user_maya",
+      "role": "OWNER",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-06T04:04:16.594Z"
+    },
+    {
+      "id": "gm_2",
+      "groupId": "group_ml",
+      "userId": "user_priya",
+      "role": "OWNER",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-06T04:04:16.594Z"
+    },
+    {
+      "id": "gm_3",
+      "groupId": "group_photo",
+      "userId": "user_leo",
+      "role": "OWNER",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-06T04:04:16.594Z"
+    },
+    {
+      "id": "gm_4",
+      "groupId": "group_futbol",
+      "userId": "user_diego",
+      "role": "OWNER",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-06T04:04:16.594Z"
+    },
+    {
+      "id": "gm_5",
+      "groupId": "group_books",
+      "userId": "user_sam",
+      "role": "OWNER",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-06T04:04:16.594Z"
+    },
+    {
+      "id": "gm_6",
+      "groupId": "group_trails",
+      "userId": "user_diego",
+      "role": "ADMIN",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-09T04:04:16.594Z"
+    },
+    {
+      "id": "gm_7",
+      "groupId": "group_trails",
+      "userId": "user_priya",
+      "role": "MODERATOR",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-10T04:04:16.594Z"
+    },
+    {
+      "id": "gm_8",
+      "groupId": "group_trails",
+      "userId": "user_sam",
+      "role": "MEMBER",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-11T04:04:16.594Z"
+    },
+    {
+      "id": "gm_9",
+      "groupId": "group_trails",
+      "userId": "user_leo",
+      "role": "MEMBER",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-12T04:04:16.594Z"
+    },
+    {
+      "id": "gm_10",
+      "groupId": "group_ml",
+      "userId": "user_maya",
+      "role": "ADMIN",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-09T04:04:16.594Z"
+    },
+    {
+      "id": "gm_11",
+      "groupId": "group_ml",
+      "userId": "user_diego",
+      "role": "MODERATOR",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-10T04:04:16.594Z"
+    },
+    {
+      "id": "gm_12",
+      "groupId": "group_ml",
+      "userId": "user_sam",
+      "role": "MEMBER",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-11T04:04:16.594Z"
+    },
+    {
+      "id": "gm_13",
+      "groupId": "group_ml",
+      "userId": "user_leo",
+      "role": "MEMBER",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-12T04:04:16.594Z"
+    },
+    {
+      "id": "gm_14",
+      "groupId": "group_photo",
+      "userId": "user_maya",
+      "role": "ADMIN",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-09T04:04:16.594Z"
+    },
+    {
+      "id": "gm_15",
+      "groupId": "group_photo",
+      "userId": "user_diego",
+      "role": "MODERATOR",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-10T04:04:16.594Z"
+    },
+    {
+      "id": "gm_16",
+      "groupId": "group_photo",
+      "userId": "user_priya",
+      "role": "MEMBER",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-11T04:04:16.594Z"
+    },
+    {
+      "id": "gm_17",
+      "groupId": "group_photo",
+      "userId": "user_sam",
+      "role": "MEMBER",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-12T04:04:16.594Z"
+    },
+    {
+      "id": "gm_18",
+      "groupId": "group_futbol",
+      "userId": "user_maya",
+      "role": "ADMIN",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-09T04:04:16.594Z"
+    },
+    {
+      "id": "gm_19",
+      "groupId": "group_futbol",
+      "userId": "user_priya",
+      "role": "MODERATOR",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-10T04:04:16.594Z"
+    },
+    {
+      "id": "gm_20",
+      "groupId": "group_futbol",
+      "userId": "user_sam",
+      "role": "MEMBER",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-11T04:04:16.594Z"
+    },
+    {
+      "id": "gm_21",
+      "groupId": "group_futbol",
+      "userId": "user_leo",
+      "role": "MEMBER",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-12T04:04:16.594Z"
+    }
+  ],
+  "follows": [
+    {
+      "id": "follow_1",
+      "userId": "user_maya",
+      "groupId": "group_ml",
+      "createdAt": "2026-07-16T04:04:16.594Z"
+    },
+    {
+      "id": "follow_2",
+      "userId": "user_diego",
+      "groupId": "group_trails",
+      "createdAt": "2026-07-17T04:04:16.594Z"
+    },
+    {
+      "id": "follow_3",
+      "userId": "user_leo",
+      "groupId": "group_trails",
+      "createdAt": "2026-07-18T04:04:16.594Z"
+    }
+  ],
+  "events": [
+    {
+      "id": "event_lands_end",
+      "groupId": "group_trails",
+      "hostId": "user_maya",
+      "title": "Lands End Sunrise Hike",
+      "description": "A 5-mile coastal loop with the best sunrise view in the city. Meet at the Lands End Lookout parking lot. Bring layers — it gets windy.",
+      "coverImage": null,
+      "mode": "IN_PERSON",
+      "status": "PUBLISHED",
+      "visibility": "PUBLIC",
+      "locationName": "Lands End Lookout",
+      "address": "680 Point Lobos Ave, San Francisco, CA",
+      "latitude": 37.7799,
+      "longitude": -122.5115,
+      "onlineUrl": null,
+      "timezone": "America/Los_Angeles",
+      "startTime": "2026-07-29T04:04:16.594Z",
+      "endTime": "2026-07-29T07:04:16.594Z",
+      "capacity": 20,
+      "rsvpDeadline": null,
+      "recurrenceRule": null,
+      "parentEventId": null,
+      "cancelledAt": null,
+      "createdAt": "2026-07-21T04:04:16.594Z",
+      "updatedAt": "2026-07-21T04:04:16.594Z",
+      "_startOffsetDays": 3,
+      "_durationHours": 3
+    },
+    {
+      "id": "event_marin",
+      "groupId": "group_trails",
+      "hostId": "user_maya",
+      "title": "Marin Headlands Full-Day Trek",
+      "description": "12 miles, 2,300 ft of climbing, unforgettable views of the Golden Gate. Intermediate+ fitness recommended.",
+      "coverImage": null,
+      "mode": "IN_PERSON",
+      "status": "PUBLISHED",
+      "visibility": "PUBLIC",
+      "locationName": "Tennessee Valley Trailhead",
+      "address": "Tennessee Valley Rd, Mill Valley, CA",
+      "latitude": 37.8607,
+      "longitude": -122.5361,
+      "onlineUrl": null,
+      "timezone": "America/Los_Angeles",
+      "startTime": "2026-08-05T04:04:16.594Z",
+      "endTime": "2026-08-05T11:04:16.594Z",
+      "capacity": 12,
+      "rsvpDeadline": null,
+      "recurrenceRule": null,
+      "parentEventId": null,
+      "cancelledAt": null,
+      "createdAt": "2026-07-21T04:04:16.594Z",
+      "updatedAt": "2026-07-21T04:04:16.594Z",
+      "_startOffsetDays": 10,
+      "_durationHours": 7
+    },
+    {
+      "id": "event_paper_night",
+      "groupId": "group_ml",
+      "hostId": "user_priya",
+      "title": "Paper Night: Attention Is All You Need, Revisited",
+      "description": "We revisit the transformer paper with 2026 eyes: what held up, what did not, and what the field learned.",
+      "coverImage": null,
+      "mode": "HYBRID",
+      "status": "PUBLISHED",
+      "visibility": "PUBLIC",
+      "locationName": "Founders Hub SoMa",
+      "address": "535 Mission St, San Francisco, CA",
+      "latitude": 37.7891,
+      "longitude": -122.3979,
+      "onlineUrl": "https://meet.gatherly.app/ml-guild-paper-night",
+      "timezone": "America/Los_Angeles",
+      "startTime": "2026-07-31T04:04:16.594Z",
+      "endTime": "2026-07-31T06:04:16.594Z",
+      "capacity": 60,
+      "rsvpDeadline": null,
+      "recurrenceRule": null,
+      "parentEventId": null,
+      "cancelledAt": null,
+      "createdAt": "2026-07-21T04:04:16.594Z",
+      "updatedAt": "2026-07-21T04:04:16.594Z",
+      "_startOffsetDays": 5,
+      "_durationHours": 2
+    },
+    {
+      "id": "event_finetune",
+      "groupId": "group_ml",
+      "hostId": "user_priya",
+      "title": "Hands-on: Fine-tuning Open Models",
+      "description": "Bring a laptop; leave with a fine-tuned model. Basic Python required.",
+      "coverImage": null,
+      "mode": "ONLINE",
+      "status": "PUBLISHED",
+      "visibility": "PUBLIC",
+      "locationName": null,
+      "address": null,
+      "latitude": null,
+      "longitude": null,
+      "onlineUrl": "https://meet.gatherly.app/ml-guild-finetune",
+      "timezone": "America/Los_Angeles",
+      "startTime": "2026-08-09T04:04:16.594Z",
+      "endTime": "2026-08-09T07:04:16.594Z",
+      "capacity": 100,
+      "rsvpDeadline": null,
+      "recurrenceRule": null,
+      "parentEventId": null,
+      "cancelledAt": null,
+      "createdAt": "2026-07-21T04:04:16.594Z",
+      "updatedAt": "2026-07-21T04:04:16.594Z",
+      "_startOffsetDays": 14,
+      "_durationHours": 3
+    },
+    {
+      "id": "event_crissy",
+      "groupId": "group_photo",
+      "hostId": "user_leo",
+      "title": "Golden Hour Walk: Crissy Field",
+      "description": "Sunset walk from Crissy Field to Fort Point. All cameras welcome.",
+      "coverImage": null,
+      "mode": "IN_PERSON",
+      "status": "PUBLISHED",
+      "visibility": "PUBLIC",
+      "locationName": "Crissy Field East Beach",
+      "address": "1199 East Beach, San Francisco, CA",
+      "latitude": 37.8039,
+      "longitude": -122.464,
+      "onlineUrl": null,
+      "timezone": "America/Los_Angeles",
+      "startTime": "2026-07-28T04:04:16.594Z",
+      "endTime": "2026-07-28T06:04:16.594Z",
+      "capacity": 15,
+      "rsvpDeadline": null,
+      "recurrenceRule": null,
+      "parentEventId": null,
+      "cancelledAt": null,
+      "createdAt": "2026-07-21T04:04:16.594Z",
+      "updatedAt": "2026-07-21T04:04:16.594Z",
+      "_startOffsetDays": 2,
+      "_durationHours": 2
+    },
+    {
+      "id": "event_soccer",
+      "groupId": "group_futbol",
+      "hostId": "user_diego",
+      "title": "Saturday Pick-up Match",
+      "description": "Our weekly co-ed pick-up game. Cleats recommended, bibs provided.",
+      "coverImage": null,
+      "mode": "IN_PERSON",
+      "status": "PUBLISHED",
+      "visibility": "PUBLIC",
+      "locationName": "Bushrod Park",
+      "address": "560 59th St, Oakland, CA",
+      "latitude": 37.8452,
+      "longitude": -122.2646,
+      "onlineUrl": null,
+      "timezone": "America/Los_Angeles",
+      "startTime": "2026-08-01T04:04:16.594Z",
+      "endTime": "2026-08-01T06:04:16.594Z",
+      "capacity": 30,
+      "rsvpDeadline": null,
+      "recurrenceRule": null,
+      "parentEventId": null,
+      "cancelledAt": null,
+      "createdAt": "2026-07-21T04:04:16.594Z",
+      "updatedAt": "2026-07-21T04:04:16.594Z",
+      "_startOffsetDays": 6,
+      "_durationHours": 2
+    },
+    {
+      "id": "event_critique",
+      "groupId": "group_photo",
+      "hostId": "user_leo",
+      "title": "Critique Circle: Street Photography",
+      "description": "Bring 3 prints or a small digital set. Constructive, specific, kind feedback.",
+      "coverImage": null,
+      "mode": "IN_PERSON",
+      "status": "COMPLETED",
+      "visibility": "PUBLIC",
+      "locationName": "Four Barrel Coffee",
+      "address": "375 Valencia St, San Francisco, CA",
+      "latitude": 37.767,
+      "longitude": -122.4216,
+      "onlineUrl": null,
+      "timezone": "America/Los_Angeles",
+      "startTime": "2026-07-19T04:04:16.594Z",
+      "endTime": "2026-07-19T06:04:16.594Z",
+      "capacity": 10,
+      "rsvpDeadline": null,
+      "recurrenceRule": null,
+      "parentEventId": null,
+      "cancelledAt": null,
+      "createdAt": "2026-07-21T04:04:16.594Z",
+      "updatedAt": "2026-07-21T04:04:16.594Z",
+      "_startOffsetDays": -7,
+      "_durationHours": 2
+    }
+  ],
+  "rsvps": [
+    {
+      "id": "rsvp_1",
+      "eventId": "event_lands_end",
+      "userId": "user_diego",
+      "status": "GOING",
+      "createdAt": "2026-07-22T04:04:16.594Z",
+      "updatedAt": "2026-07-22T04:04:16.594Z"
+    },
+    {
+      "id": "rsvp_2",
+      "eventId": "event_lands_end",
+      "userId": "user_priya",
+      "status": "GOING",
+      "createdAt": "2026-07-23T04:04:16.594Z",
+      "updatedAt": "2026-07-23T04:04:16.594Z"
+    },
+    {
+      "id": "rsvp_3",
+      "eventId": "event_lands_end",
+      "userId": "user_sam",
+      "status": "INTERESTED",
+      "createdAt": "2026-07-24T04:04:16.594Z",
+      "updatedAt": "2026-07-24T04:04:16.594Z"
+    },
+    {
+      "id": "rsvp_4",
+      "eventId": "event_lands_end",
+      "userId": "user_leo",
+      "status": "GOING",
+      "createdAt": "2026-07-25T04:04:16.594Z",
+      "updatedAt": "2026-07-25T04:04:16.594Z"
+    },
+    {
+      "id": "rsvp_5",
+      "eventId": "event_marin",
+      "userId": "user_sam",
+      "status": "GOING",
+      "createdAt": "2026-07-22T04:04:16.594Z",
+      "updatedAt": "2026-07-22T04:04:16.594Z"
+    },
+    {
+      "id": "rsvp_6",
+      "eventId": "event_marin",
+      "userId": "user_diego",
+      "status": "INTERESTED",
+      "createdAt": "2026-07-23T04:04:16.594Z",
+      "updatedAt": "2026-07-23T04:04:16.594Z"
+    },
+    {
+      "id": "rsvp_7",
+      "eventId": "event_paper_night",
+      "userId": "user_maya",
+      "status": "GOING",
+      "createdAt": "2026-07-24T04:04:16.594Z",
+      "updatedAt": "2026-07-24T04:04:16.594Z"
+    },
+    {
+      "id": "rsvp_8",
+      "eventId": "event_paper_night",
+      "userId": "user_sam",
+      "status": "GOING",
+      "createdAt": "2026-07-25T04:04:16.594Z",
+      "updatedAt": "2026-07-25T04:04:16.594Z"
+    },
+    {
+      "id": "rsvp_9",
+      "eventId": "event_paper_night",
+      "userId": "user_leo",
+      "status": "INTERESTED",
+      "createdAt": "2026-07-22T04:04:16.594Z",
+      "updatedAt": "2026-07-22T04:04:16.594Z"
+    },
+    {
+      "id": "rsvp_10",
+      "eventId": "event_finetune",
+      "userId": "user_maya",
+      "status": "GOING",
+      "createdAt": "2026-07-23T04:04:16.594Z",
+      "updatedAt": "2026-07-23T04:04:16.594Z"
+    },
+    {
+      "id": "rsvp_11",
+      "eventId": "event_crissy",
+      "userId": "user_maya",
+      "status": "GOING",
+      "createdAt": "2026-07-24T04:04:16.594Z",
+      "updatedAt": "2026-07-24T04:04:16.594Z"
+    },
+    {
+      "id": "rsvp_12",
+      "eventId": "event_crissy",
+      "userId": "user_priya",
+      "status": "GOING",
+      "createdAt": "2026-07-25T04:04:16.594Z",
+      "updatedAt": "2026-07-25T04:04:16.594Z"
+    },
+    {
+      "id": "rsvp_13",
+      "eventId": "event_soccer",
+      "userId": "user_sam",
+      "status": "GOING",
+      "createdAt": "2026-07-22T04:04:16.594Z",
+      "updatedAt": "2026-07-22T04:04:16.594Z"
+    },
+    {
+      "id": "rsvp_14",
+      "eventId": "event_soccer",
+      "userId": "user_maya",
+      "status": "INTERESTED",
+      "createdAt": "2026-07-23T04:04:16.594Z",
+      "updatedAt": "2026-07-23T04:04:16.594Z"
+    },
+    {
+      "id": "rsvp_15",
+      "eventId": "event_critique",
+      "userId": "user_maya",
+      "status": "GOING",
+      "createdAt": "2026-07-24T04:04:16.594Z",
+      "updatedAt": "2026-07-24T04:04:16.594Z"
+    },
+    {
+      "id": "rsvp_16",
+      "eventId": "event_critique",
+      "userId": "user_priya",
+      "status": "GOING",
+      "createdAt": "2026-07-25T04:04:16.594Z",
+      "updatedAt": "2026-07-25T04:04:16.594Z"
+    }
+  ],
+  "conversations": [
+    {
+      "id": "conv_maya_leo",
+      "type": "DIRECT",
+      "groupId": null,
+      "title": null,
+      "createdAt": "2026-07-20T04:04:16.594Z",
+      "updatedAt": "2026-07-25T04:04:16.594Z"
+    },
+    {
+      "id": "conv_trails",
+      "type": "GROUP",
+      "groupId": "group_trails",
+      "title": "Bay Area Trail Collective",
+      "createdAt": "2026-07-16T04:04:16.594Z",
+      "updatedAt": "2026-07-25T04:04:16.594Z"
+    }
+  ],
+  "conversationParticipants": [
+    {
+      "id": "cp_1",
+      "conversationId": "conv_maya_leo",
+      "userId": "user_maya",
+      "joinedAt": "2026-07-20T04:04:16.594Z",
+      "lastReadAt": "2026-07-25T04:04:16.594Z"
+    },
+    {
+      "id": "cp_2",
+      "conversationId": "conv_maya_leo",
+      "userId": "user_leo",
+      "joinedAt": "2026-07-20T04:04:16.594Z",
+      "lastReadAt": "2026-07-24T04:04:16.594Z"
+    },
+    {
+      "id": "cp_3",
+      "conversationId": "conv_trails",
+      "userId": "user_maya",
+      "joinedAt": "2026-07-16T04:04:16.594Z",
+      "lastReadAt": "2026-07-25T04:04:16.594Z"
+    },
+    {
+      "id": "cp_4",
+      "conversationId": "conv_trails",
+      "userId": "user_diego",
+      "joinedAt": "2026-07-16T04:04:16.594Z",
+      "lastReadAt": null
+    },
+    {
+      "id": "cp_5",
+      "conversationId": "conv_trails",
+      "userId": "user_sam",
+      "joinedAt": "2026-07-16T04:04:16.594Z",
+      "lastReadAt": null
+    }
+  ],
+  "messages": [
+    {
+      "id": "msg_1",
+      "conversationId": "conv_maya_leo",
+      "senderId": "user_maya",
+      "content": "Hey Leo! Are you shooting the Crissy Field walk this week?",
+      "createdAt": "2026-07-21T04:04:16.594Z",
+      "deletedAt": null,
+      "updatedAt": "2026-07-21T04:04:16.594Z"
+    },
+    {
+      "id": "msg_2",
+      "conversationId": "conv_maya_leo",
+      "senderId": "user_leo",
+      "content": "Absolutely — bringing the film camera this time. You in?",
+      "createdAt": "2026-07-21T05:04:16.594Z",
+      "deletedAt": null,
+      "updatedAt": "2026-07-21T05:04:16.594Z"
+    },
+    {
+      "id": "msg_3",
+      "conversationId": "conv_maya_leo",
+      "senderId": "user_maya",
+      "content": "Wouldn't miss it. I'll RSVP now. Want to grab coffee before?",
+      "createdAt": "2026-07-22T04:04:16.594Z",
+      "deletedAt": null,
+      "updatedAt": "2026-07-22T04:04:16.594Z"
+    },
+    {
+      "id": "msg_4",
+      "conversationId": "conv_maya_leo",
+      "senderId": "user_leo",
+      "content": "Four Barrel at 5? Golden hour starts around 6:40.",
+      "createdAt": "2026-07-22T04:34:16.594Z",
+      "deletedAt": null,
+      "updatedAt": "2026-07-22T04:34:16.594Z"
+    },
+    {
+      "id": "msg_5",
+      "conversationId": "conv_trails",
+      "senderId": "user_maya",
+      "content": "Sunrise hike this Saturday — carpool sign-up is open!",
+      "createdAt": "2026-07-25T04:04:16.594Z",
+      "deletedAt": null,
+      "updatedAt": "2026-07-25T04:04:16.594Z"
+    }
+  ],
+  "friendships": [
+    {
+      "id": "friend_1",
+      "requesterId": "user_maya",
+      "addresseeId": "user_leo",
+      "status": "ACCEPTED",
+      "createdAt": "2026-07-11T04:04:16.594Z",
+      "respondedAt": "2026-07-12T04:04:16.594Z"
+    },
+    {
+      "id": "friend_2",
+      "requesterId": "user_diego",
+      "addresseeId": "user_sam",
+      "status": "ACCEPTED",
+      "createdAt": "2026-07-14T04:04:16.594Z",
+      "respondedAt": "2026-07-15T04:04:16.594Z"
+    },
+    {
+      "id": "friend_3",
+      "requesterId": "user_priya",
+      "addresseeId": "user_maya",
+      "status": "PENDING",
+      "createdAt": "2026-07-24T04:04:16.594Z",
+      "respondedAt": null
+    }
+  ],
+  "notifications": [],
+  "reports": [],
+  "auditLogs": [],
+  "payments": [],
+  "activityLogs": [
+    {
+      "id": "act_signup_0",
+      "userId": "user_admin",
+      "type": "SIGNUP",
+      "metadata": {},
+      "createdAt": "2026-06-16T04:04:16.594Z"
+    },
+    {
+      "id": "act_signup_1",
+      "userId": "user_maya",
+      "type": "SIGNUP",
+      "metadata": {},
+      "createdAt": "2026-06-17T04:04:16.594Z"
+    },
+    {
+      "id": "act_signup_2",
+      "userId": "user_diego",
+      "type": "SIGNUP",
+      "metadata": {},
+      "createdAt": "2026-06-18T04:04:16.594Z"
+    },
+    {
+      "id": "act_signup_3",
+      "userId": "user_priya",
+      "type": "SIGNUP",
+      "metadata": {},
+      "createdAt": "2026-06-19T04:04:16.594Z"
+    },
+    {
+      "id": "act_signup_4",
+      "userId": "user_sam",
+      "type": "SIGNUP",
+      "metadata": {},
+      "createdAt": "2026-06-20T04:04:16.594Z"
+    },
+    {
+      "id": "act_signup_5",
+      "userId": "user_leo",
+      "type": "SIGNUP",
+      "metadata": {},
+      "createdAt": "2026-06-21T04:04:16.594Z"
+    }
+  ]
+}
