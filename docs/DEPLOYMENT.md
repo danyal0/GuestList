@@ -2,6 +2,8 @@
 
 Gatherly deploys as **three Railway services** in one project: PostgreSQL, the API, and the web app.
 
+> **Important:** Keep each service’s **Root Directory** at `/` (repo root). This is an npm workspaces monorepo — installs and builds must run from the root. Point each service at its Config-as-code file (below) so Railway uses the Dockerfiles instead of Railpack. If Config-as-code is unset, Railpack builds from the root `package.json` and needs the root `start` / `start:web` scripts (already defined).
+
 ## 1. Create the project
 
 1. Railway → **New Project** → **Deploy PostgreSQL** (this provisions the database and a `DATABASE_URL`).
@@ -10,6 +12,7 @@ Gatherly deploys as **three Railway services** in one project: PostgreSQL, the A
 ## 2. Configure the API service (`gatherly-api`)
 
 - **Settings → Config-as-code file**: `apps/api/railway.json` (builds `apps/api/Dockerfile` with the repo root as context; health check on `/api/v1/health`).
+- **Railpack fallback** (only if not using the Dockerfile): Build Command `npm run build:api`, Start Command `npm run start:api`.
 - **Variables**:
 
 | Variable | Value |
@@ -33,6 +36,7 @@ Gatherly deploys as **three Railway services** in one project: PostgreSQL, the A
 ## 3. Configure the web service (`gatherly-web`)
 
 - **Settings → Config-as-code file**: `apps/web/railway.json`.
+- **Railpack fallback** (only if not using the Dockerfile): Build Command `npm run build:web`, Start Command `npm run start:web`.
 - **Build args / variables**:
 
 | Variable | Value |
