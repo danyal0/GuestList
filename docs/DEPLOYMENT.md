@@ -1,66 +1,78 @@
 # Deployment Guide (Railway)
 
-Gatherly deploys as **three Railway services** in one project: PostgreSQL, the API, and the web app.
+Gatherly deploys as **two Railway services** in one project: **PostgreSQL** + **one app service** that runs the API and web UI together from this monorepo.
 
-> **Important:** Keep each service’s **Root Directory** at `/` (repo root). This is an npm workspaces monorepo — installs and builds must run from the root. Point each service at its Config-as-code file (below) so Railway uses the Dockerfiles instead of Railpack. If Config-as-code is unset, Railpack builds from the root `package.json` and needs the root `start` / `start:web` scripts (already defined).
+The app service boots Nest (internal `:4000`), Next.js (internal `:3000`), and a tiny reverse proxy on Railway’s public `$PORT` that routes `/api`, `/uploads`, and `/socket.io` to the API and everything else to the UI.
+
+> Keep the service **Root Directory** at `/` (repo root). npm workspaces must install and build from the root.
 
 ## 1. Create the project
 
-1. Railway → **New Project** → **Deploy PostgreSQL** (this provisions the database and a `DATABASE_URL`).
-2. **New service → GitHub repo** → select this repository. Do this **twice** (one service for the API, one for the web app).
+1. Railway → **New Project** → **Deploy PostgreSQL**.
+2. **New service → GitHub repo** → select this repository (**once**).
 
-## 2. Configure the API service (`gatherly-api`)
+Railway picks up the root `railway.json` / `railpack.json` (build + `npm start` + health check).
 
-- **Settings → Config-as-code file**: `apps/api/railway.json` (builds `apps/api/Dockerfile` with the repo root as context; health check on `/api/v1/health`).
-- **Railpack fallback** (only if not using the Dockerfile): Build Command `npm run build:api`, Start Command `npm run start:api`.
+## 2. Configure the app service (`gatherly`)
+
 - **Variables**:
 
 | Variable | Value |
 | --- | --- |
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (reference the DB service) |
 | `NODE_ENV` | `production` |
-| `PORT` | `4000` |
-| `WEB_URL` | `https://<your-web-domain>` |
-| `API_URL` | `https://<your-api-domain>` |
-| `CORS_ORIGINS` | `https://<your-web-domain>` |
+| `WEB_URL` | `https://<your-railway-domain>` |
+| `API_URL` | `https://<your-railway-domain>` (same public origin; proxy serves `/api`) |
+| `CORS_ORIGINS` | `https://<your-railway-domain>` |
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | 32+ char random secrets (`openssl rand -base64 48`) |
 | `COOKIE_SECURE` | `true` |
-| `COOKIE_DOMAIN` | apex domain if web+api share it, else unset |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` | Your mail provider (emails log to console when unset) |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` | Optional mail provider (emails log to console when unset) |
 | `GOOGLE_CLIENT_ID` / `APPLE_CLIENT_ID` | OAuth client IDs (optional) |
 
-- **Networking**: generate a public domain.
-- Migrations run automatically on boot (`prisma migrate deploy` in the container CMD). Seed once if desired: `railway run --service gatherly-api npm run prisma:seed -w apps/api`.
-- **Uploads**: attach a Railway **Volume** mounted at `/app/apps/api/uploads` so uploaded images survive deploys (or point the uploads module at S3-compatible storage later).
+Leave `NEXT_PUBLIC_API_URL` **unset** so the browser Socket.IO client uses the same origin (proxied to the API).
 
-## 3. Configure the web service (`gatherly-web`)
+Optional internals (defaults are fine):
 
-- **Settings → Config-as-code file**: `apps/web/railway.json`.
-- **Railpack fallback** (only if not using the Dockerfile): Build Command `npm run build:web`, Start Command `npm run start:web`.
-- **Build args / variables**:
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `INTERNAL_API_PORT` | `4000` | Nest bind port inside the container |
+| `INTERNAL_WEB_PORT` | `3000` | Next.js bind port inside the container |
 
-| Variable | Value |
-| --- | --- |
-| `API_URL` | Internal API URL, e.g. `http://gatherly-api.railway.internal:4000` (baked into rewrites at build time) |
-| `NEXT_PUBLIC_API_URL` | Public API URL for the browser's Socket.IO connection, e.g. `https://<your-api-domain>` |
-| `NEXT_PUBLIC_SITE_URL` | `https://<your-web-domain>` |
+- **Networking**: generate a public domain on the app service.
+- Migrations run on boot (`prisma migrate deploy` before the API listens).
+- **Uploads**: attach a Railway **Volume** at `/app/apps/api/uploads` (or the service working directory’s `apps/api/uploads`) so images survive deploys.
 
-- **Networking**: generate/attach your public domain.
+## 3. Optional: split API and web into two services
 
-Using Railway's **private networking** for `API_URL` keeps proxied API traffic off the public internet; only WebSocket traffic uses the public API domain.
+If you later want separate services, use Config-as-code:
+
+- API → `apps/api/railway.json` (Dockerfile), start via that image
+- Web → `apps/web/railway.json` (Dockerfile)
+
+Set `API_URL` / `NEXT_PUBLIC_API_URL` to the API’s private/public URLs as described in those files’ comments and the web `.env.example`.
 
 ## 4. CI/CD
 
-`.github/workflows/ci.yml` runs lint → unit tests → API integration tests (with a Postgres service container) → builds → Playwright E2E on every push/PR. On pushes to `main`, if a `RAILWAY_TOKEN` repository secret is present, it deploys both services with the Railway CLI (`railway up`). Alternatively, enable Railway's built-in GitHub auto-deploys and drop the deploy job — CI still gates on the branch protection check.
+`.github/workflows/ci.yml` runs lint → unit tests → API integration tests → builds → Playwright E2E on every push/PR. On pushes to `main`, if a `RAILWAY_TOKEN` repository secret is present, it deploys the app service with the Railway CLI (`railway up --service gatherly`). Alternatively, enable Railway’s GitHub auto-deploys and drop the deploy job.
 
 ## Local production parity
 
 ```bash
-docker compose up --build   # db + api + web, exactly as deployed
+npm run build
+PORT=8080 DATABASE_URL=... JWT_ACCESS_SECRET=... JWT_REFRESH_SECRET=... \
+  WEB_URL=http://localhost:8080 API_URL=http://localhost:8080 CORS_ORIGINS=http://localhost:8080 \
+  npm start
+# → http://localhost:8080 (UI + /api via proxy)
+```
+
+Or the multi-container setup:
+
+```bash
+docker compose up --build   # db + api + web as separate containers
 ```
 
 ## Rollbacks & health
 
 - Railway keeps previous deploys — one-click rollback.
-- API healthcheck: `/api/v1/health` verifies DB connectivity; Docker HEALTHCHECK and Railway's healthcheckPath both use it.
+- Health check: `/api/v1/health` (proxied to the API; verifies DB connectivity).
 - Structured request logs + audit log table for forensics.
