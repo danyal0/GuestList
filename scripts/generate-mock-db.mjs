@@ -379,6 +379,7 @@ const events = eventsRaw.map((e) => {
     startTime: iso(start),
     endTime: iso(start + e.hours * 60 * 60 * 1000),
     capacity: e.capacity,
+    allowWaitlist: true,
     rsvpDeadline: null,
     recurrenceRule: null,
     parentEventId: null,
