@@ -476,7 +476,8 @@
       "createdAt": "2026-07-21T04:04:16.594Z",
       "updatedAt": "2026-07-21T04:04:16.594Z",
       "_startOffsetDays": 3,
-      "_durationHours": 3
+      "_durationHours": 3,
+      "allowWaitlist": true
     },
     {
       "id": "event_marin",
@@ -504,7 +505,8 @@
       "createdAt": "2026-07-21T04:04:16.594Z",
       "updatedAt": "2026-07-21T04:04:16.594Z",
       "_startOffsetDays": 10,
-      "_durationHours": 7
+      "_durationHours": 7,
+      "allowWaitlist": true
     },
     {
       "id": "event_paper_night",
@@ -532,7 +534,8 @@
       "createdAt": "2026-07-21T04:04:16.594Z",
       "updatedAt": "2026-07-21T04:04:16.594Z",
       "_startOffsetDays": 5,
-      "_durationHours": 2
+      "_durationHours": 2,
+      "allowWaitlist": true
     },
     {
       "id": "event_finetune",
@@ -560,7 +563,8 @@
       "createdAt": "2026-07-21T04:04:16.594Z",
       "updatedAt": "2026-07-21T04:04:16.594Z",
       "_startOffsetDays": 14,
-      "_durationHours": 3
+      "_durationHours": 3,
+      "allowWaitlist": true
     },
     {
       "id": "event_crissy",
@@ -588,7 +592,8 @@
       "createdAt": "2026-07-21T04:04:16.594Z",
       "updatedAt": "2026-07-21T04:04:16.594Z",
       "_startOffsetDays": 2,
-      "_durationHours": 2
+      "_durationHours": 2,
+      "allowWaitlist": true
     },
     {
       "id": "event_soccer",
@@ -616,7 +621,8 @@
       "createdAt": "2026-07-21T04:04:16.594Z",
       "updatedAt": "2026-07-21T04:04:16.594Z",
       "_startOffsetDays": 6,
-      "_durationHours": 2
+      "_durationHours": 2,
+      "allowWaitlist": true
     },
     {
       "id": "event_critique",
@@ -644,7 +650,8 @@
       "createdAt": "2026-07-21T04:04:16.594Z",
       "updatedAt": "2026-07-21T04:04:16.594Z",
       "_startOffsetDays": -7,
-      "_durationHours": 2
+      "_durationHours": 2,
+      "allowWaitlist": true
     }
   ],
   "rsvps": [

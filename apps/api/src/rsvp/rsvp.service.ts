@@ -69,7 +69,8 @@ export class RsvpService {
             where: { eventId, status: RsvpStatus.GOING, userId: { not: userId } },
           });
           if (goingCount >= event.capacity) {
-            if (!event.allowWaitlist) {
+            // Schema default is true; treat missing (e.g. older mock rows) as enabled.
+            if (event.allowWaitlist === false) {
               throw new BadRequestException('This event is at capacity');
             }
             finalStatus = RsvpStatus.WAITLISTED;
