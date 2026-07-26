@@ -7,6 +7,7 @@ import {
   Post,
   Req,
   Res,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
@@ -111,8 +112,7 @@ export class AuthController {
   ): Promise<AuthResponse> {
     const token = dto.refreshToken ?? (req.cookies ?? {})[REFRESH_COOKIE];
     if (!token) {
-      res.status(HttpStatus.UNAUTHORIZED);
-      throw new Error('Missing refresh token');
+      throw new UnauthorizedException('Missing refresh token');
     }
     const result = await this.authService.refresh(token, this.meta(req));
     return this.respondWithAuth(res, result);

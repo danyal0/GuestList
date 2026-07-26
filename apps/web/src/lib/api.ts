@@ -73,14 +73,19 @@ export async function api<T>(
   return response.json() as Promise<T>;
 }
 
-async function refreshSession(): Promise<boolean> {
+/** Shared session restore — used by Providers bootstrap and 401 retries. */
+export async function refreshSession(): Promise<boolean> {
   // Deduplicate concurrent refreshes — rotation invalidates old tokens.
   refreshPromise ??= (async () => {
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const csrf = readCookie('gatherly_csrf');
+      if (csrf) headers['X-CSRF-Token'] = csrf;
+
       const response = await fetch('/api/v1/auth/refresh', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: '{}',
       });
       if (!response.ok) return false;
@@ -92,7 +97,7 @@ async function refreshSession(): Promise<boolean> {
     } finally {
       setTimeout(() => {
         refreshPromise = null;
-      }, 0);
+      }, 50);
     }
   })();
   return refreshPromise;

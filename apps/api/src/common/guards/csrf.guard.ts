@@ -19,6 +19,11 @@ export class CsrfGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<Request & { user?: AuthUser }>();
 
     if (SAFE_METHODS.has(request.method)) return true;
+    // Refresh authenticates via the httpOnly refresh cookie itself — CSRF is redundant
+    // and breaks session restore when a still-valid access cookie is also present.
+    if (request.path?.endsWith('/auth/refresh') || request.url?.includes('/auth/refresh')) {
+      return true;
+    }
     if (!request.user || request.user.authSource !== 'cookie') return true;
 
     const cookieValue: string | undefined = (request.cookies ?? {})[CSRF_COOKIE];

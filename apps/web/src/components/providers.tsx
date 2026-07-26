@@ -6,29 +6,20 @@ import { ThemeProvider } from 'next-themes';
 import { Toaster } from 'sonner';
 import { useAuthStore } from '@/stores/auth-store';
 import { getSocket, disconnectSocket } from '@/lib/socket';
+import { refreshSession } from '@/lib/api';
 import { toast } from 'sonner';
 
 function SessionBootstrap({ children }: { children: React.ReactNode }) {
-  const { setSession, setHydrated, clear, accessToken, user } = useAuthStore();
+  const { setHydrated, clear, accessToken, user } = useAuthStore();
 
   // Restore the session on first load via the refresh cookie.
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const response = await fetch('/api/v1/auth/refresh', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: '{}',
-        });
+        const ok = await refreshSession();
         if (cancelled) return;
-        if (response.ok) {
-          const data = await response.json();
-          setSession(data.user, data.accessToken);
-        } else {
-          clear();
-        }
+        if (!ok) clear();
       } catch {
         if (!cancelled) setHydrated();
       }
@@ -36,7 +27,7 @@ function SessionBootstrap({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [setSession, setHydrated, clear]);
+  }, [setHydrated, clear]);
 
   // Live notification stream once authenticated.
   React.useEffect(() => {
