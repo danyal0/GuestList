@@ -1,0 +1,259 @@
+import { ConflictException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Test } from '@nestjs/testing';
+import * as argon2 from 'argon2';
+import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
+import { AuditService } from '../audit/audit.service';
+import { AuthService } from './auth.service';
+import { OAuthService } from './oauth.service';
+import { TokenService } from './token.service';
+
+const TOKENS = {
+  accessToken: 'access',
+  refreshToken: 'refresh',
+  accessExpiresIn: 900,
+  refreshExpiresIn: 3600,
+};
+
+function makeUser(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'usr_1',
+    email: 'ada@example.com',
+    passwordHash: null as string | null,
+    name: 'Ada Lovelace',
+    avatarUrl: null,
+    bio: null,
+    location: null,
+    role: 'USER',
+    interests: [],
+    skills: [],
+    emailVerifiedAt: null,
+    suspendedAt: null,
+    deletedAt: null,
+    googleId: null,
+    appleId: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
+}
+
+describe('AuthService', () => {
+  let service: AuthService;
+  let prisma: {
+    user: { findUnique: jest.Mock; findFirst: jest.Mock; findUniqueOrThrow: jest.Mock; create: jest.Mock; update: jest.Mock };
+    activityLog: { create: jest.Mock };
+    emailToken: { updateMany: jest.Mock; create: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
+  };
+  let tokenService: { issuePair: jest.Mock; rotate: jest.Mock; revokeAllForUser: jest.Mock; revokeByToken: jest.Mock };
+  let mailService: { send: jest.Mock };
+
+  beforeEach(async () => {
+    prisma = {
+      user: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        findUniqueOrThrow: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+      },
+      activityLog: { create: jest.fn().mockResolvedValue({}) },
+      emailToken: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        create: jest.fn().mockResolvedValue({}),
+        findUnique: jest.fn(),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    };
+    tokenService = {
+      issuePair: jest.fn().mockResolvedValue(TOKENS),
+      rotate: jest.fn(),
+      revokeAllForUser: jest.fn().mockResolvedValue(undefined),
+      revokeByToken: jest.fn().mockResolvedValue(undefined),
+    };
+    mailService = { send: jest.fn().mockResolvedValue(undefined) };
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        AuthService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: TokenService, useValue: tokenService },
+        { provide: OAuthService, useValue: { verifyGoogle: jest.fn(), verifyApple: jest.fn() } },
+        { provide: MailService, useValue: mailService },
+        { provide: AuditService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
+        { provide: ConfigService, useValue: { get: () => 'http://localhost:3000' } },
+      ],
+    }).compile();
+
+    service = moduleRef.get(AuthService);
+  });
+
+  describe('signup', () => {
+    it('rejects duplicate emails with 409', async () => {
+      prisma.user.findUnique.mockResolvedValue(makeUser());
+      await expect(service.signup('ada@example.com', 'Str0ngPassw0rd!', 'Ada', {})).rejects.toThrow(
+        ConflictException,
+      );
+    });
+
+    it('hashes the password with argon2 and issues tokens', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve(makeUser(data)),
+      );
+
+      const result = await service.signup('ada@example.com', 'Str0ngPassw0rd!', 'Ada', {});
+
+      const created = prisma.user.create.mock.calls[0][0].data;
+      expect(created.passwordHash).not.toBe('Str0ngPassw0rd!');
+      expect(created.passwordHash).toMatch(/^\$argon2/);
+      await expect(argon2.verify(created.passwordHash, 'Str0ngPassw0rd!')).resolves.toBe(true);
+      expect(result.tokens).toEqual(TOKENS);
+      expect(mailService.send).toHaveBeenCalledWith(
+        expect.objectContaining({ subject: expect.stringContaining('Verify') }),
+      );
+    });
+
+    it('never exposes the password hash in the response', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve(makeUser(data)),
+      );
+      const result = await service.signup('ada@example.com', 'Str0ngPassw0rd!', 'Ada', {});
+      expect(result.user).not.toHaveProperty('passwordHash');
+    });
+  });
+
+  describe('login', () => {
+    it('rejects unknown emails with a generic message', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      await expect(service.login('nobody@example.com', 'whatever', {})).rejects.toThrow(
+        'Invalid email or password',
+      );
+    });
+
+    it('rejects a wrong password with the same generic message', async () => {
+      const passwordHash = await argon2.hash('correct-password');
+      prisma.user.findUnique.mockResolvedValue(makeUser({ passwordHash }));
+      await expect(service.login('ada@example.com', 'wrong-password', {})).rejects.toThrow(
+        'Invalid email or password',
+      );
+    });
+
+    it('rejects suspended accounts even with valid credentials', async () => {
+      const passwordHash = await argon2.hash('correct-password');
+      prisma.user.findUnique.mockResolvedValue(makeUser({ passwordHash, suspendedAt: new Date() }));
+      await expect(service.login('ada@example.com', 'correct-password', {})).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('rejects soft-deleted accounts', async () => {
+      const passwordHash = await argon2.hash('correct-password');
+      prisma.user.findUnique.mockResolvedValue(makeUser({ passwordHash, deletedAt: new Date() }));
+      await expect(service.login('ada@example.com', 'correct-password', {})).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('returns the user and tokens for valid credentials', async () => {
+      const passwordHash = await argon2.hash('correct-password');
+      prisma.user.findUnique.mockResolvedValue(makeUser({ passwordHash }));
+
+      const result = await service.login('ada@example.com', 'correct-password', {});
+      expect(result.user.email).toBe('ada@example.com');
+      expect(result.tokens).toEqual(TOKENS);
+      expect(tokenService.issuePair).toHaveBeenCalled();
+    });
+  });
+
+  describe('forgotPassword', () => {
+    it('silently succeeds for unknown emails (no enumeration)', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      await expect(service.forgotPassword('ghost@example.com')).resolves.toBeUndefined();
+      expect(mailService.send).not.toHaveBeenCalled();
+    });
+
+    it('sends a reset email and stores only a token hash for real accounts', async () => {
+      prisma.user.findUnique.mockResolvedValue(makeUser());
+      await service.forgotPassword('ada@example.com');
+
+      expect(mailService.send).toHaveBeenCalled();
+      const stored = prisma.emailToken.create.mock.calls[0][0].data;
+      const mailedUrl: string = mailService.send.mock.calls[0][0].ctaUrl;
+      const mailedToken = new URL(mailedUrl).searchParams.get('token')!;
+      expect(stored.tokenHash).not.toBe(mailedToken);
+      expect(stored.tokenHash).toMatch(/^[0-9a-f]{64}$/);
+    });
+  });
+
+  describe('resetPassword', () => {
+    it('rejects invalid tokens', async () => {
+      prisma.emailToken.findUnique.mockResolvedValue(null);
+      await expect(service.resetPassword('bad-token', 'NewPassw0rd!!')).rejects.toThrow(
+        'Invalid or expired token',
+      );
+    });
+
+    it('rejects used tokens (single use)', async () => {
+      prisma.emailToken.findUnique.mockResolvedValue({
+        id: 'et_1',
+        userId: 'usr_1',
+        type: 'RESET_PASSWORD',
+        usedAt: new Date(),
+        expiresAt: new Date(Date.now() + 10_000),
+      });
+      await expect(service.resetPassword('used-token', 'NewPassw0rd!!')).rejects.toThrow(
+        'Invalid or expired token',
+      );
+    });
+
+    it('updates the password and revokes every session', async () => {
+      prisma.emailToken.findUnique.mockResolvedValue({
+        id: 'et_1',
+        userId: 'usr_1',
+        type: 'RESET_PASSWORD',
+        usedAt: null,
+        expiresAt: new Date(Date.now() + 10_000),
+      });
+      prisma.user.update.mockResolvedValue(makeUser());
+
+      await service.resetPassword('good-token', 'NewPassw0rd!!');
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'usr_1' } }),
+      );
+      expect(tokenService.revokeAllForUser).toHaveBeenCalledWith('usr_1');
+    });
+  });
+
+  describe('verifyEmail', () => {
+    it('rejects a token of the wrong type', async () => {
+      prisma.emailToken.findUnique.mockResolvedValue({
+        id: 'et_1',
+        userId: 'usr_1',
+        type: 'RESET_PASSWORD',
+        usedAt: null,
+        expiresAt: new Date(Date.now() + 10_000),
+      });
+      await expect(service.verifyEmail('wrong-type')).rejects.toThrow('Invalid or expired token');
+    });
+
+    it('marks the email verified for a valid token', async () => {
+      prisma.emailToken.findUnique.mockResolvedValue({
+        id: 'et_1',
+        userId: 'usr_1',
+        type: 'VERIFY_EMAIL',
+        usedAt: null,
+        expiresAt: new Date(Date.now() + 10_000),
+      });
+      prisma.user.update.mockResolvedValue(makeUser({ emailVerifiedAt: new Date() }));
+
+      await service.verifyEmail('valid');
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'usr_1' },
+        data: { emailVerifiedAt: expect.any(Date) },
+      });
+    });
+  });
+});
