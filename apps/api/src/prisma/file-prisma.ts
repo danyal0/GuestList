@@ -1,7 +1,16 @@
+import { Prisma } from '@prisma/client';
 import { fileStore, type JsonRow } from './file-store';
 
 type Where = Record<string, unknown> | undefined;
 type OrderBy = Record<string, 'asc' | 'desc'> | Array<Record<string, 'asc' | 'desc'>> | undefined;
+
+function notFound(model: string): never {
+  throw new Prisma.PrismaClientKnownRequestError(`No ${model} record was found.`, {
+    code: 'P2025',
+    clientVersion: 'file',
+    meta: { modelName: model },
+  });
+}
 
 function getPath(obj: JsonRow, path: string): unknown {
   return path.split('.').reduce<unknown>((acc, key) => {
@@ -208,23 +217,17 @@ const RELATION_MAP: Record<string, { model: string; local: string; foreign: stri
   'notification.user': { model: 'user', local: 'userId', foreign: 'id', many: false },
 };
 
-function applyRelationFilter(
-  model: string,
-  relatedRows: JsonRow[],
-  includeOpts: unknown,
-): JsonRow[] {
+function applyRelationFilter(relatedRows: JsonRow[], includeOpts: unknown): JsonRow[] {
   if (!includeOpts || includeOpts === true) return relatedRows;
   const opts = includeOpts as {
     where?: Where;
     orderBy?: OrderBy;
     take?: number;
-    select?: Record<string, unknown>;
-    include?: Record<string, unknown>;
   };
   let rows = relatedRows.filter((r) => matchesWhere(r, opts.where));
   rows = sortRows(rows, opts.orderBy);
   if (typeof opts.take === 'number') rows = rows.slice(0, opts.take);
-  return rows.map((r) => shapeRow(model, r, opts));
+  return rows;
 }
 
 function shapeRow(
@@ -278,19 +281,13 @@ function shapeRow(
         ? {}
         : (relOpts as { select?: Record<string, unknown>; include?: Record<string, unknown>; where?: Where });
 
-    related = applyRelationFilter(rel.model, related, relOpts);
+    related = applyRelationFilter(related, relOpts);
 
     if (rel.many) {
-      base[relName] = related;
+      base[relName] = related.map((r) => shapeRow(rel.model, r, nestedArgs));
     } else {
       const one = related[0] ?? null;
-      if (one && (nestedArgs.select || nestedArgs.include)) {
-        base[relName] = shapeRow(rel.model, one, nestedArgs);
-      } else if (one && nestedArgs.select) {
-        base[relName] = pickSelect(one, nestedArgs.select);
-      } else {
-        base[relName] = one;
-      }
+      base[relName] = one ? shapeRow(rel.model, one, nestedArgs) : null;
     }
   }
 
@@ -355,6 +352,12 @@ function delegate(model: string) {
       return rows[0] ?? null;
     },
 
+    async findFirstOrThrow(args: Record<string, unknown> = {}) {
+      const row = await this.findFirst(args);
+      if (!row) notFound(model);
+      return row;
+    },
+
     async findUnique(args: Record<string, unknown> = {}) {
       const where = { ...(args.where as Record<string, unknown>) };
       const compound = fileStore.resolveCompound(where);
@@ -368,6 +371,12 @@ function delegate(model: string) {
         select: args.select as Record<string, unknown> | undefined,
         include: args.include as Record<string, unknown> | undefined,
       });
+    },
+
+    async findUniqueOrThrow(args: Record<string, unknown> = {}) {
+      const row = await this.findUnique(args);
+      if (!row) notFound(model);
+      return row;
     },
 
     async count(args: Record<string, unknown> = {}) {
@@ -424,7 +433,7 @@ function delegate(model: string) {
       const effectiveWhere = compound ?? where;
       const collection = fileStore.collection(model);
       const idx = collection.findIndex((r) => matchesWhere(fileStore.hydrate(r)!, effectiveWhere));
-      if (idx < 0) throw new Error(`Record to update not found in ${model}`);
+      if (idx < 0) notFound(model);
       const current = fileStore.hydrate(collection[idx])!;
       const data = { ...((args.data as JsonRow) ?? {}) };
       // Prisma update shorthand: { field: { set / increment } } — handle set/increment lightly
@@ -470,7 +479,7 @@ function delegate(model: string) {
       const effectiveWhere = compound ?? where;
       const collection = fileStore.collection(model);
       const idx = collection.findIndex((r) => matchesWhere(fileStore.hydrate(r)!, effectiveWhere));
-      if (idx < 0) throw new Error(`Record to delete not found in ${model}`);
+      if (idx < 0) notFound(model);
       const [removed] = collection.splice(idx, 1);
       fileStore.persist();
       return fileStore.hydrate(removed);
