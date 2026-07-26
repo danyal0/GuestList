@@ -21,7 +21,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { GroupPermissionsService } from '../groups/group-permissions.service';
 import { CreateEventDto, ListEventsDto, UpdateEventDto } from './dto/event.dto';
-import { Paginated, paginate } from '../common/dto/pagination.dto';
+import { paginate } from '../common/dto/pagination.dto';
 import { haversineKm } from '../common/utils/geo';
 import { publicUserSelect } from '../users/users.service';
 import { NOTIFY_EVENT, NotifyPayload } from '../notifications/notification.events';

@@ -91,7 +91,7 @@ export class GroupsService {
     return group;
   }
 
-  async list(dto: ListGroupsDto, viewerId?: string): Promise<Paginated<GroupSummary & { distanceKm?: number }>> {
+  async list(dto: ListGroupsDto, _viewerId?: string): Promise<Paginated<GroupSummary & { distanceKm?: number }>> {
     // Hidden groups never appear in discovery; private ones do (join requires approval).
     const where: Prisma.GroupWhereInput = {
       deletedAt: null,
