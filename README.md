@@ -67,7 +67,8 @@ The dev client auto-targets your machine's API on port 4000; set `EXPO_PUBLIC_AP
 | --- | --- |
 | `npm run dev` | API + web concurrently |
 | `npm run build` | Production builds for API + web |
-| `npm run start` / `start:api` / `start:web` | Production start (API default; required for Railway/Railpack) |
+| `npm run start` | Production: API + web behind one proxy (Railway single service) |
+| `npm run start:api` / `start:web` | Start only API or only web |
 | `npm run lint` | ESLint across API + web |
 | `npm run test` | Jest unit tests (API + web) |
 | `npm run test:e2e` | API integration tests (Supertest, isolated `gatherly_test` DB) |
@@ -79,7 +80,7 @@ The dev client auto-targets your machine's API on port 4000; set `EXPO_PUBLIC_AP
 - [Architecture](docs/ARCHITECTURE.md)
 - [Database](docs/DATABASE.md)
 - [API reference](docs/API.md) (live Swagger at `/api/docs` in dev)
-- [Deployment guide (Railway)](docs/DEPLOYMENT.md)
+- [Deployment guide (Railway — one app service)](docs/DEPLOYMENT.md)
 - [Testing report](docs/TESTING.md)
 - [Security checklist](docs/SECURITY.md)
 - [Performance report](docs/PERFORMANCE.md)
