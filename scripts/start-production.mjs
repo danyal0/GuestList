@@ -124,13 +124,14 @@ function proxyHttp(req, res, port) {
     },
     (proxyRes) => {
       // Preserve multiple Set-Cookie headers (login sets access + refresh + csrf).
+      // Must set them BEFORE writeHead — setHeader after writeHead throws and 502s.
       const setCookie = proxyRes.headers['set-cookie'];
       const outHeaders = { ...proxyRes.headers };
       delete outHeaders['set-cookie'];
-      res.writeHead(proxyRes.statusCode ?? 502, outHeaders);
       if (setCookie) {
         res.setHeader('Set-Cookie', setCookie);
       }
+      res.writeHead(proxyRes.statusCode ?? 502, outHeaders);
       proxyRes.pipe(res);
     },
   );
