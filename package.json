@@ -29,7 +29,8 @@
     "test:e2e": "npm run test:e2e -w apps/api",
     "db:migrate": "npm run prisma:migrate -w apps/api",
     "db:seed": "npm run prisma:seed -w apps/api",
-    "db:generate": "npm run prisma:generate -w apps/api"
+    "db:generate": "npm run prisma:generate -w apps/api",
+    "smoke:file": "node scripts/smoke-file-mode.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
