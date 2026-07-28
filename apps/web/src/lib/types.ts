@@ -76,10 +76,14 @@ export interface EventSummary {
   mode: EventMode;
   locationName: string | null;
   address: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   onlineUrl: string | null;
   timezone: string;
   startTime: string;
   endTime: string;
+  previousStartTime?: string | null;
+  rescheduledAt?: string | null;
   capacity: number | null;
   status: EventStatus;
   goingCount: number;

@@ -352,6 +352,9 @@ model Event {
   timezone       String          @default("UTC")
   startTime      DateTime
   endTime        DateTime
+  /// Prior start before the latest WhatsApp/host reschedule (for strikethrough UI).
+  previousStartTime DateTime?
+  rescheduledAt  DateTime?
   capacity       Int?
   status         EventStatus     @default(PUBLISHED)
   visibility     EventVisibility @default(PUBLIC)

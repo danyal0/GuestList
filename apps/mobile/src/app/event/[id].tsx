@@ -138,7 +138,21 @@ export default function EventScreen() {
           >
             <FactRow icon="time-outline" colors={colors}>
               {formatDate(e.startTime)} · {formatTime(e.startTime)} – {formatTime(e.endTime)}
+              {e.status === 'CANCELLED' ? ' · Cancelled' : ''}
+              {e.previousStartTime && e.status !== 'CANCELLED' ? ' · Rescheduled' : ''}
             </FactRow>
+            {e.previousStartTime && e.status !== 'CANCELLED' ? (
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: colors.inkTertiary,
+                  textDecorationLine: 'line-through',
+                  marginLeft: 28,
+                }}
+              >
+                Was {formatDate(e.previousStartTime)} · {formatTime(e.previousStartTime)}
+              </Text>
+            ) : null}
             {e.locationName && (
               <FactRow icon="location-outline" colors={colors}>
                 {e.locationName}

@@ -81,7 +81,12 @@ export class ProfilesService {
     }
 
     return {
-      user,
+      user: {
+        ...user,
+        interests: Array.isArray(user.interests) ? user.interests : [],
+        skills: Array.isArray(user.skills) ? user.skills : [],
+        name: user.name?.trim() || 'Member',
+      },
       stats: { groupsJoined, eventsAttended, eventsHosted, friends, following },
       friendshipStatus,
     };

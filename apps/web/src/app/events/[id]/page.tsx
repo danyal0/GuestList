@@ -8,6 +8,7 @@ import {
   CalendarDays,
   CalendarPlus,
   Clock,
+  ExternalLink,
   Globe,
   MapPin,
   Repeat,
@@ -23,6 +24,7 @@ import { getSocket } from '@/lib/socket';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { LinkifiedText, googleMapsUrl } from '@/components/ui/linkified-text';
 import { RsvpButtons } from '@/components/events/rsvp-buttons';
 import { ErrorState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -68,6 +70,14 @@ export default function EventDetailPage() {
 
   const e = event.data;
   const isFull = hasSpotsLeft(e.spotsLeft) && e.spotsLeft === 0;
+  const cancelled = e.status === 'CANCELLED';
+  const rescheduled = Boolean(e.previousStartTime || e.rescheduledAt) && !cancelled;
+  const mapsHref = googleMapsUrl({
+    locationName: e.locationName,
+    address: e.address,
+    latitude: e.latitude,
+    longitude: e.longitude,
+  });
 
   return (
     <article className="mx-auto max-w-3xl space-y-6">
@@ -81,7 +91,7 @@ export default function EventDetailPage() {
             <CalendarDays className="h-16 w-16 text-white/50" aria-hidden />
           </div>
         )}
-        {e.status === 'CANCELLED' && (
+        {cancelled && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/55">
             <Badge variant="danger" className="px-4 py-1.5 text-[15px]">
               This event was cancelled
@@ -92,12 +102,16 @@ export default function EventDetailPage() {
 
       {/* Header */}
       <header>
-        <Link
-          href={`/groups/${e.group.slug}`}
-          className="text-[14px] font-semibold text-[var(--color-accent)]"
-        >
-          {e.group.name}
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/groups/${e.group.slug}`}
+            className="text-[14px] font-semibold text-[var(--color-accent)]"
+          >
+            {e.group.name}
+          </Link>
+          {cancelled && <Badge variant="danger">Cancelled</Badge>}
+          {rescheduled && <Badge variant="warning">Rescheduled</Badge>}
+        </div>
         <h1 className="mt-1 text-[30px] font-extrabold leading-tight tracking-tight">{e.title}</h1>
         <p className="mt-2 flex items-center gap-2 text-[14px] text-[var(--color-ink-secondary)]">
           Hosted by
@@ -115,10 +129,30 @@ export default function EventDetailPage() {
             <p className="text-[15px] font-semibold">
               {formatDate(e.startTime, { year: 'numeric' })}
             </p>
-            <p className="text-[14px] text-[var(--color-ink-secondary)]">
+            <p
+              className={
+                cancelled
+                  ? 'text-[14px] text-[var(--color-ink-secondary)] line-through'
+                  : 'text-[14px] text-[var(--color-ink-secondary)]'
+              }
+            >
               {formatTime(e.startTime)} – {formatTime(e.endTime)}
               <span className="text-[var(--color-ink-tertiary)]"> · {e.timezone}</span>
             </p>
+            {rescheduled && e.previousStartTime && (
+              <p className="mt-1 text-[13px] text-[var(--color-ink-tertiary)]">
+                <span className="font-semibold text-[var(--color-warning)]">Rescheduled</span>
+                {' · was '}
+                <span className="line-through">
+                  {formatDate(e.previousStartTime)} · {formatTime(e.previousStartTime)}
+                </span>
+              </p>
+            )}
+            {cancelled && (
+              <p className="mt-1 text-[13px] font-semibold text-[var(--color-danger)]">
+                Status: cancelled — this event will not happen.
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-start gap-3">
@@ -128,11 +162,38 @@ export default function EventDetailPage() {
             <MapPin className="mt-0.5 h-5 w-5 text-[var(--color-accent)]" aria-hidden />
           )}
           <div>
-            <p className="text-[15px] font-semibold">
-              {e.mode === 'ONLINE' ? 'Online event' : e.locationName ?? 'Location TBD'}
-              {e.mode === 'HYBRID' && ' · Hybrid'}
-            </p>
-            {e.address && <p className="text-[14px] text-[var(--color-ink-secondary)]">{e.address}</p>}
+            {e.mode === 'ONLINE' ? (
+              <p className="text-[15px] font-semibold">Online event</p>
+            ) : mapsHref ? (
+              <a
+                href={mapsHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-[15px] font-semibold text-[var(--color-accent)] hover:underline"
+              >
+                {e.locationName ?? 'Open in Google Maps'}
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+              </a>
+            ) : (
+              <p className="text-[15px] font-semibold">{e.locationName ?? 'Location TBD'}</p>
+            )}
+            {e.mode === 'HYBRID' && (
+              <p className="text-[13px] text-[var(--color-ink-tertiary)]">Hybrid · also online</p>
+            )}
+            {e.address && (
+              mapsHref ? (
+                <a
+                  href={mapsHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-0.5 block text-[14px] text-[var(--color-ink-secondary)] hover:text-[var(--color-accent)] hover:underline"
+                >
+                  {e.address}
+                </a>
+              ) : (
+                <p className="text-[14px] text-[var(--color-ink-secondary)]">{e.address}</p>
+              )
+            )}
             {e.onlineUrl && (e.viewerRsvp?.status === 'GOING' ? (
               <a
                 href={e.onlineUrl}
@@ -201,8 +262,8 @@ export default function EventDetailPage() {
                 href={`/profile/${attendee.id}`}
                 className="flex items-center gap-2 rounded-[var(--radius-pill)] border border-[var(--color-hairline)] bg-[var(--color-surface)] py-1.5 pl-1.5 pr-4 transition-colors hover:border-[var(--color-accent)]"
               >
-                <Avatar src={attendee.avatarUrl} name={attendee.name} size="sm" />
-                <span className="text-[14px] font-semibold">{attendee.name}</span>
+                <Avatar src={attendee.avatarUrl} name={attendee.name || 'Member'} size="sm" />
+                <span className="text-[14px] font-semibold">{attendee.name || 'Member'}</span>
               </Link>
             ))}
           </div>
@@ -215,9 +276,10 @@ export default function EventDetailPage() {
           Details
         </h2>
         <div className="rounded-[var(--radius-lg)] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-6">
-          <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-[var(--color-ink-secondary)]">
-            {e.description}
-          </p>
+          <LinkifiedText
+            text={e.description}
+            className="text-[15px] leading-relaxed text-[var(--color-ink-secondary)]"
+          />
         </div>
       </section>
     </article>

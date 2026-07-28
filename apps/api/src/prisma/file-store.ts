@@ -222,6 +222,18 @@ export class FileStore {
         user.deletedAt = null;
         changed = true;
       }
+      if (!Array.isArray(user.interests)) {
+        user.interests = [];
+        changed = true;
+      }
+      if (!Array.isArray(user.skills)) {
+        user.skills = [];
+        changed = true;
+      }
+      if (!user.role) {
+        user.role = 'USER';
+        changed = true;
+      }
     }
 
     const hasTennis = this.db.groups.some(

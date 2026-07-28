@@ -68,13 +68,17 @@ export default function ProfilePage() {
   }
 
   const { user: profileUser, stats, friendshipStatus } = profile.data;
+  const interests = Array.isArray(profileUser.interests) ? profileUser.interests : [];
+  const skills = Array.isArray(profileUser.skills) ? profileUser.skills : [];
 
   return (
     <div className="mx-auto max-w-2xl space-y-8">
       {/* Header — Apple Contacts feel */}
       <div className="flex flex-col items-center text-center">
-        <Avatar src={profileUser.avatarUrl} name={profileUser.name} size="xl" />
-        <h1 className="mt-4 text-[28px] font-extrabold tracking-tight">{profileUser.name}</h1>
+        <Avatar src={profileUser.avatarUrl} name={profileUser.name || 'Member'} size="xl" />
+        <h1 className="mt-4 text-[28px] font-extrabold tracking-tight">
+          {profileUser.name || 'Member'}
+        </h1>
         <div className="mt-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[14px] text-[var(--color-ink-secondary)]">
           {profileUser.location && (
             <span className="flex items-center gap-1.5">
@@ -141,27 +145,27 @@ export default function ProfilePage() {
       </dl>
 
       {/* Interests + skills */}
-      {(profileUser.interests.length > 0 || profileUser.skills.length > 0) && (
+      {(interests.length > 0 || skills.length > 0) && (
         <div className="space-y-5">
-          {profileUser.interests.length > 0 && (
+          {interests.length > 0 && (
             <section>
               <h2 className="mb-2 text-[15px] font-bold uppercase tracking-wide text-[var(--color-ink-tertiary)]">
                 Interests
               </h2>
               <div className="flex flex-wrap gap-2">
-                {profileUser.interests.map((interest) => (
+                {interests.map((interest) => (
                   <Badge key={interest}>{interest}</Badge>
                 ))}
               </div>
             </section>
           )}
-          {profileUser.skills.length > 0 && (
+          {skills.length > 0 && (
             <section>
               <h2 className="mb-2 text-[15px] font-bold uppercase tracking-wide text-[var(--color-ink-tertiary)]">
                 Skills
               </h2>
               <div className="flex flex-wrap gap-2">
-                {profileUser.skills.map((skill) => (
+                {skills.map((skill) => (
                   <Badge key={skill} variant="neutral">
                     {skill}
                   </Badge>
