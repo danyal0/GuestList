@@ -338,13 +338,49 @@ function extractPhone(source) {
 }
 
 /**
- * Resolve whether a chat is the configured tennis group.
- * @param {import('whatsapp-web.js').Chat} chat
+ * Cached WhatsApp group JID (e.g. 120363…@g.us).
+ * Prefer WHATSAPP_GROUP_ID; otherwise resolved once on ready by group name.
+ * Avoids flaky message.getChat() / getChatById Puppeteer evaluates (`r: r`).
+ * @type {string | null}
  */
-function isTargetGroup(chat) {
-  if (!chat?.isGroup) return false;
-  const name = (chat.name || '').trim().toLowerCase();
-  return name === WHATSAPP_GROUP_NAME.trim().toLowerCase();
+let targetGroupId = process.env.WHATSAPP_GROUP_ID?.trim() || null;
+
+/**
+ * @returns {Promise<string | null>}
+ */
+async function resolveTargetGroupId() {
+  if (targetGroupId) return targetGroupId;
+
+  const wanted = WHATSAPP_GROUP_NAME.trim().toLowerCase();
+  if (!wanted) return null;
+
+  const chats = await client.getChats();
+  const match = chats.find(
+    (chat) =>
+      chat.isGroup && (chat.name || '').trim().toLowerCase() === wanted,
+  );
+
+  if (!match) {
+    console.warn(
+      `[whatsapp-bot] Group "${WHATSAPP_GROUP_NAME}" not found in chat list yet.`,
+    );
+    return null;
+  }
+
+  targetGroupId = match.id._serialized;
+  console.log(
+    `[whatsapp-bot] Resolved group "${match.name}" → ${targetGroupId}`,
+  );
+  return targetGroupId;
+}
+
+/**
+ * @param {string | null | undefined} chatId
+ */
+function isTargetGroupId(chatId) {
+  if (!chatId || !String(chatId).endsWith('@g.us')) return false;
+  if (!targetGroupId) return false;
+  return chatId === targetGroupId;
 }
 
 /**
@@ -466,10 +502,15 @@ client.on('auth_failure', (msg) => {
   console.error('[whatsapp-bot] Auth failure:', msg);
 });
 
-client.on('ready', () => {
+client.on('ready', async () => {
   console.log(
     `[whatsapp-bot] Ready. Listening for messages in group "${WHATSAPP_GROUP_NAME}".`,
   );
+  try {
+    await resolveTargetGroupId();
+  } catch (err) {
+    console.error('[whatsapp-bot] Failed to resolve target group on ready:', err);
+  }
 });
 
 client.on('disconnected', (reason) => {
@@ -482,11 +523,23 @@ client.on('message', async (message) => {
     if (message.from === 'status@broadcast') return;
     if (message.fromMe && process.env.WHATSAPP_PROCESS_SELF !== 'true') return;
 
-    const chat = await message.getChat();
-    if (!isTargetGroup(chat)) return;
+    // Groups only — message.from is the group JID (…@g.us).
+    if (!String(message.from || '').endsWith('@g.us')) return;
 
-    const contact = await message.getContact();
-    const senderPhone = extractPhone(contact) || extractPhone(message);
+    if (!targetGroupId) {
+      try {
+        await resolveTargetGroupId();
+      } catch (err) {
+        console.warn('[whatsapp-bot] Could not resolve group id:', err.message || err);
+        return;
+      }
+    }
+    if (!isTargetGroupId(message.from)) return;
+
+    // In groups, author is the participant; avoid flaky getContact()/getChat().
+    const senderPhone =
+      extractPhone({ from: message.author || message.from }) ||
+      extractPhone(message);
     if (!senderPhone) {
       console.warn('[whatsapp-bot] Skipping message with unknown sender phone.');
       return;
@@ -537,20 +590,31 @@ client.on('message_reaction', async (reaction) => {
       return;
     }
 
-    // Best-effort: load the parent message to confirm group + get chat.
-    let chat = null;
-    try {
-      const parent = await client.getMessageById(targetMessageId);
-      if (parent) chat = await parent.getChat();
-    } catch {
-      // Fall through — some wwebjs versions struggle with getMessageById.
+    // Prefer chat id from the reaction's message id (no Puppeteer getChat).
+    const reactionChatId =
+      (typeof msgId === 'object' && msgId?.remote) ||
+      (typeof targetMessageId === 'string' && targetMessageId.includes('@g.us')
+        ? targetMessageId.split('_').find((part) => part.endsWith('@g.us'))
+        : null);
+
+    if (!targetGroupId) {
+      try {
+        await resolveTargetGroupId();
+      } catch {
+        // ignore
+      }
     }
 
-    if (chat && !isTargetGroup(chat)) return;
-    // If we could not resolve the chat, still process when group filtering is soft.
-    if (!chat && process.env.WHATSAPP_REQUIRE_GROUP_ON_REACTION === 'true') {
+    if (reactionChatId && !isTargetGroupId(reactionChatId)) return;
+    if (!reactionChatId && process.env.WHATSAPP_REQUIRE_GROUP_ON_REACTION === 'true') {
       console.warn('[whatsapp-bot] Skipping reaction; group chat unresolved.');
       return;
+    }
+    if (!reactionChatId && targetGroupId) {
+      // Soft allow only when we couldn't parse chat id; still prefer a match when possible.
+      console.warn(
+        '[whatsapp-bot] Reaction chat id unknown; processing anyway (set WHATSAPP_REQUIRE_GROUP_ON_REACTION=true to strict-filter).',
+      );
     }
 
     const reactorId = reaction.senderId || reaction.id || '';
