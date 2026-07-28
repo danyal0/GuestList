@@ -1,8 +1,10 @@
 import {
   detectCancelCues,
   detectRescheduleCues,
+  extractEventIdFromText,
   extractMapsUrls,
   extractNamedAttendeesFromMessage,
+  hasPlaceCue,
   inferEventCapacity,
   mergeNamedAttendees,
   preferPmForTennisHour,
@@ -173,6 +175,11 @@ describe('detectCancelCues', () => {
     expect(cue.matchedPhrase?.toLowerCase()).toMatch(/cancell?ed/);
   });
 
+  it('flags short reply "its cancelled"', () => {
+    expect(detectCancelCues('its cancelled').matched).toBe(true);
+    expect(detectCancelCues("it's canceled").matched).toBe(true);
+  });
+
   it('flags called off / not happening', () => {
     expect(detectCancelCues('tennis tonight is called off').matched).toBe(true);
     expect(detectCancelCues('not happening today').matched).toBe(true);
@@ -189,5 +196,17 @@ describe('detectCancelCues', () => {
     const text = 'the 6pm Atwater game earlier than planned is cancelled';
     expect(detectCancelCues(text).matched).toBe(true);
     expect(detectRescheduleCues(text).matched).toBe(true);
+  });
+
+  it('extracts app event ids from share links', () => {
+    expect(
+      extractEventIdFromText('see https://mkeplays.app/events/evt_abc123xyz for details'),
+    ).toBe('evt_abc123xyz');
+    expect(extractEventIdFromText('its cancelled')).toBeNull();
+  });
+
+  it('detects place cues only when the message mentions a place', () => {
+    expect(hasPlaceCue('its cancelled')).toBe(false);
+    expect(hasPlaceCue('Atwater 6pm cancelled')).toBe(true);
   });
 });

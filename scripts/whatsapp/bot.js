@@ -168,6 +168,7 @@ if (!XAI_API_KEY) {
  *   whatsappMessageId: string,
  *   targetMessageId: string | null,
  *   quotedText?: string | null,
+ *   targetEventId?: string | null,
  * }} AnalyzePayload
  */
 
@@ -304,8 +305,34 @@ async function analyzeWithxAI(payload) {
   }
 
   let analysis = parseAnalysisJson(rawContent);
-  if (analysis.intent === 'CREATE_EVENT') {
+  const localCancelEarly = detectCancelCuesLocal(payload.text);
+  const isCancel =
+    localCancelEarly.matched ||
+    Boolean(analysis.extractedData?.isCancel) ||
+    (typeof analysis.extractedData?.cancelConfidence === 'number' &&
+      analysis.extractedData.cancelConfidence >= 0.7);
+  // Cancel-only messages must not invent a venue (that breaks soft-matching
+  // app-created events that aren't at McKinley / catalog defaults).
+  if (analysis.intent === 'CREATE_EVENT' && !isCancel) {
     analysis = await ensureVenueConfidence(payload, analysis);
+  } else if (isCancel) {
+    analysis.extractedData.isCancel = true;
+    analysis.extractedData.cancelConfidence = Math.max(
+      localCancelEarly.confidence,
+      typeof analysis.extractedData.cancelConfidence === 'number'
+        ? analysis.extractedData.cancelConfidence
+        : 0,
+      0.9,
+    );
+    analysis.extractedData.venueSlug = null;
+    analysis.extractedData.venue = null;
+    analysis.extractedData.locationName = null;
+    analysis.extractedData.address = null;
+    analysis.extractedData.latitude = null;
+    analysis.extractedData.longitude = null;
+    analysis.extractedData.venueConfidence = 0;
+    analysis.extractedData.addressConfidence = 0;
+    analysis.extractedData.capacity = null;
   }
   return analysis;
 }
@@ -648,25 +675,102 @@ function detectCancelCuesLocal(text) {
 
 /**
  * Resolve the WhatsApp message this one replies to (quoted/referenced).
+ * Prefer getQuotedMessage(); fall back to embedded `_data.quotedMsg` when Store APIs fail.
  * @param {any} message
  * @returns {Promise<{ id: string | null, text: string | null }>}
  */
 async function resolveQuotedMessage(message) {
-  try {
-    if (!message?.hasQuotedMsg) return { id: null, text: null };
-    const quoted = await message.getQuotedMessage();
-    if (!quoted) return { id: null, text: null };
-    return {
-      id: serializeWhatsappMessageId(quoted),
-      text: typeof quoted.body === 'string' ? quoted.body : null,
-    };
-  } catch (err) {
-    console.warn(
-      '[whatsapp-bot] Failed to read quoted/replied message:',
-      err?.message || err,
-    );
+  const fromData = extractQuotedFromRawData(message);
+  if (!message?.hasQuotedMsg && !fromData.text && !fromData.id) {
     return { id: null, text: null };
   }
+
+  try {
+    if (message?.hasQuotedMsg && typeof message.getQuotedMessage === 'function') {
+      const quoted = await message.getQuotedMessage();
+      if (quoted) {
+        return {
+          id: serializeWhatsappMessageId(quoted) || fromData.id,
+          text:
+            (typeof quoted.body === 'string' && quoted.body.trim()
+              ? quoted.body
+              : null) || fromData.text,
+        };
+      }
+    }
+  } catch (err) {
+    const detail =
+      err && typeof err === 'object'
+        ? err.message || err.stack || JSON.stringify(err).slice(0, 200)
+        : String(err);
+    console.warn(
+      `[whatsapp-bot] getQuotedMessage failed (${detail}) — using embedded quote data`,
+    );
+  }
+
+  if (fromData.id || fromData.text) {
+    console.log(
+      `[whatsapp-bot] Quoted fallback id=${fromData.id ?? 'n/a'} text=${(fromData.text || '').slice(0, 80)}`,
+    );
+  }
+  return fromData;
+}
+
+/**
+ * Pull quote id/body from the inbound message model without Store lookups.
+ * @param {any} message
+ * @returns {{ id: string | null, text: string | null }}
+ */
+function extractQuotedFromRawData(message) {
+  const data = message?._data || message?.rawData || {};
+  const quoted = data.quotedMsg || data.quotedMsgObj || null;
+  const text =
+    (typeof quoted?.body === 'string' && quoted.body.trim()
+      ? quoted.body
+      : null) ||
+    (typeof quoted?.caption === 'string' && quoted.caption.trim()
+      ? quoted.caption
+      : null) ||
+    null;
+
+  let id = null;
+  const stanza =
+    data.quotedStanzaID ||
+    data.quotedId ||
+    quoted?.id?.id ||
+    quoted?.id?._serialized ||
+    (typeof quoted?.id === 'string' ? quoted.id : null);
+  if (stanza && typeof stanza === 'string' && stanza.includes('_')) {
+    id = stanza;
+  } else if (stanza) {
+    const chatId =
+      message?.from ||
+      data.from ||
+      message?.id?.remote ||
+      data.to ||
+      null;
+    const participant = data.quotedParticipant || quoted?.author || null;
+    const fromMe =
+      data.quotedMsg?.fromMe === true ||
+      (participant &&
+        message?.author &&
+        String(participant) === String(message.author));
+    if (chatId) {
+      // Group replies usually serialize as false_<group>_<stanza>
+      id = `${fromMe ? 'true' : 'false'}_${chatId}_${stanza}`;
+    }
+  }
+
+  return { id, text };
+}
+
+/** @param {string | null | undefined} text */
+function extractAppEventIdFromText(text) {
+  if (!text) return null;
+  const m = String(text).match(
+    /\/events\/([a-zA-Z0-9_-]{6,})\b/,
+  );
+  return m?.[1] || null;
 }
 
 /** Infer capacity when AI omits it, using venue catalog defaults. */
@@ -877,50 +981,58 @@ async function dispatchIntent(payload, analysis) {
         arr.findIndex((n) => String(n).toLowerCase() === key) === idx
       );
     });
-    const capacity = inferCapacityLocal(x, payload.text);
     const cancelConfidence = Math.max(
       localCancel.confidence,
       typeof x.cancelConfidence === 'number' ? x.cancelConfidence : 0,
       x.isCancel ? 0.9 : 0,
     );
+    const capacity =
+      cancelConfidence >= 0.7 ? null : inferCapacityLocal(x, payload.text);
     const rescheduleConfidence = Math.max(
       localReschedule.confidence,
       typeof x.rescheduleConfidence === 'number' ? x.rescheduleConfidence : 0,
       x.isReschedule ? 0.85 : 0,
       payload.targetMessageId && cancelConfidence < 0.7 ? 0.75 : 0,
     );
+    const isCancel = cancelConfidence >= 0.7 || Boolean(x.isCancel) || localCancel.matched;
+    const targetEventId =
+      payload.targetEventId ||
+      extractAppEventIdFromText(payload.quotedText) ||
+      extractAppEventIdFromText(payload.text);
     const body = {
       senderPhone: payload.senderPhone,
       senderLid: payload.senderLid ?? null,
       senderJid: payload.senderJid ?? null,
       senderName: payload.senderName ?? null,
       messageBody: payload.text ?? '',
+      quotedText: payload.quotedText ?? null,
       whatsappMessageId: payload.whatsappMessageId,
       targetWhatsappMessageId: payload.targetMessageId,
-      title: x.title,
-      suggestedTime: x.suggestedTime,
-      venue: x.venue,
-      locationName: x.locationName,
-      address: x.address,
-      latitude: x.latitude,
-      longitude: x.longitude,
-      venueSlug: x.venueSlug,
-      venueConfidence: x.venueConfidence,
-      addressConfidence: x.addressConfidence,
-      timeConfidence: x.timeConfidence,
+      targetEventId,
+      title: isCancel ? null : x.title,
+      suggestedTime: isCancel ? null : x.suggestedTime,
+      venue: isCancel ? null : x.venue,
+      locationName: isCancel ? null : x.locationName,
+      address: isCancel ? null : x.address,
+      latitude: isCancel ? null : x.latitude,
+      longitude: isCancel ? null : x.longitude,
+      venueSlug: isCancel ? null : x.venueSlug,
+      venueConfidence: isCancel ? null : x.venueConfidence,
+      addressConfidence: isCancel ? null : x.addressConfidence,
+      timeConfidence: isCancel ? null : x.timeConfidence,
       instructions: x.instructions,
       notes: x.notes,
       skillLevel: x.skillLevel,
       courtInfo: x.courtInfo,
       durationMinutes: x.durationMinutes,
       capacity,
-      capacityConfidence: x.capacityConfidence,
-      namedAttendees,
+      capacityConfidence: isCancel ? null : x.capacityConfidence,
+      namedAttendees: isCancel ? [] : namedAttendees,
       isReschedule:
-        cancelConfidence < 0.7 &&
+        !isCancel &&
         (Boolean(x.isReschedule) || localReschedule.matched || Boolean(payload.targetMessageId)),
-      rescheduleConfidence: cancelConfidence >= 0.7 ? 0 : rescheduleConfidence,
-      isCancel: cancelConfidence >= 0.7 || Boolean(x.isCancel) || localCancel.matched,
+      rescheduleConfidence: isCancel ? 0 : rescheduleConfidence,
+      isCancel,
       cancelConfidence,
       timezone: x.timezone || 'America/Chicago',
       confidence: analysis.confidence,
@@ -938,7 +1050,7 @@ async function dispatchIntent(payload, analysis) {
       return;
     }
     console.log(
-      `[whatsapp-bot] CREATE_EVENT title=${body.title} slug=${body.venueSlug} capacity=${body.capacity} attendees=${JSON.stringify(body.namedAttendees)} cancel=${body.isCancel}/${body.cancelConfidence} reschedule=${body.isReschedule}/${body.rescheduleConfidence} replyTo=${body.targetWhatsappMessageId ?? 'n/a'} addr=${body.address} time=${body.suggestedTime} vConf=${body.venueConfidence} aConf=${body.addressConfidence}`,
+      `[whatsapp-bot] CREATE_EVENT title=${body.title} slug=${body.venueSlug} capacity=${body.capacity} attendees=${JSON.stringify(body.namedAttendees)} cancel=${body.isCancel}/${body.cancelConfidence} reschedule=${body.isReschedule}/${body.rescheduleConfidence} replyTo=${body.targetWhatsappMessageId ?? 'n/a'} eventId=${body.targetEventId ?? 'n/a'} addr=${body.address} time=${body.suggestedTime} vConf=${body.venueConfidence} aConf=${body.addressConfidence}`,
     );
     await postToApp('/api/whatsapp/create-event', body);
     return;
@@ -1292,6 +1404,9 @@ client.on('message', async (message) => {
     }
 
     const quoted = await resolveQuotedMessage(message);
+    const targetEventId =
+      extractAppEventIdFromText(quoted.text) ||
+      extractAppEventIdFromText(message.body);
 
     /** @type {AnalyzePayload} */
     const payload = {
@@ -1305,10 +1420,11 @@ client.on('message', async (message) => {
       whatsappMessageId,
       targetMessageId: quoted.id,
       quotedText: quoted.text,
+      targetEventId,
     };
 
     console.log(
-      `[whatsapp-bot] Message lid=${senderLid ?? 'n/a'} phone=${senderPhone ?? 'n/a'} replyTo=${quoted.id ?? 'n/a'}: ${(payload.text || '').slice(0, 120)}`,
+      `[whatsapp-bot] Message lid=${senderLid ?? 'n/a'} phone=${senderPhone ?? 'n/a'} replyTo=${quoted.id ?? 'n/a'} eventId=${targetEventId ?? 'n/a'}: ${(payload.text || '').slice(0, 120)}`,
     );
 
     const analysis = await analyzeWithxAI(payload);

@@ -416,6 +416,23 @@ export function detectCancelCues(
   return { matched: false, confidence: 0, matchedPhrase: null };
 }
 
+/** Pull /events/:id from an app share link in a WhatsApp body/quote. */
+export function extractEventIdFromText(
+  text: string | null | undefined,
+): string | null {
+  if (!text) return null;
+  const m = String(text).match(/\/events\/([a-zA-Z0-9_-]{6,})\b/);
+  return m?.[1] || null;
+}
+
+/** True when the message itself mentions a place (not inventable). */
+export function hasPlaceCue(messageBody: string | null | undefined): boolean {
+  if (!messageBody?.trim()) return false;
+  return /\b(?:atwater|mckinley|lake\s*park|lake\s*front|lakefront|shorewood|lincoln\s+memorial|bradford|kenwood|court|park|school|venue)\b/i.test(
+    messageBody,
+  );
+}
+
 /** Pull Google Maps / Apple Maps short links from a WhatsApp body. */
 export function extractMapsUrls(messageBody: string | null | undefined): string[] {
   if (!messageBody) return [];
