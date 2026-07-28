@@ -45,7 +45,7 @@ export class NotificationsService {
           where: { id: payload.userId },
           select: { email: true, deletedAt: true },
         });
-        if (user && !user.deletedAt) {
+        if (user?.email && !user.deletedAt) {
           const webUrl = this.config.get<string>('webUrl');
           await this.mailService.send({
             to: user.email,
