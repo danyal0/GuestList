@@ -80,6 +80,16 @@ if (!XAI_API_KEY) {
  *     title: string | null,
  *     suggestedTime: string | null,
  *     venue: string | null,
+ *     locationName: string | null,
+ *     address: string | null,
+ *     latitude: number | null,
+ *     longitude: number | null,
+ *     instructions: string | null,
+ *     notes: string | null,
+ *     skillLevel: string | null,
+ *     courtInfo: string | null,
+ *     durationMinutes: number | null,
+ *     timezone: string | null,
  *   }
  * }} AnalysisResult
  * @typedef {{
@@ -95,22 +105,40 @@ if (!XAI_API_KEY) {
  * }} AnalyzePayload
  */
 
-const SYSTEM_PROMPT = `You are a strict text classification and data extraction tool for a tennis match organizing app.
-Parse casual WhatsApp group chat messages and reactions about tennis matches.
+const SYSTEM_PROMPT = `You are an expert tennis match organizer for Milwaukee, Wisconsin (MKE Plays).
+Parse casual WhatsApp group chat about pickup tennis. Extract MAXIMUM structured detail.
 
 Identify exactly one intent:
-- CREATE_EVENT: the sender is proposing / scheduling a new match or hitting session
-- RSVP_YES: the sender is confirming they will attend an existing match
-- RSVP_NO: the sender is cancelling or declining an RSVP
-- IGNORE: normal banter, unrelated chat, or insufficient signal
+- CREATE_EVENT: proposing / scheduling a new match or hitting session
+- RSVP_YES: confirming attendance for an existing match
+- RSVP_NO: cancelling or declining
+- IGNORE: banter / unrelated / insufficient signal
 
-Rules:
-- Be conservative: prefer IGNORE when unsure.
-- Extract title, suggestedTime, and venue only when clearly implied.
-- suggestedTime may be an ISO-8601 string OR a plain-text clue (e.g. "Saturday 10am").
-- Return ONLY a single minified JSON object. No markdown. No commentary.
-- Schema:
-{"intent":"CREATE_EVENT"|"RSVP_YES"|"RSVP_NO"|"IGNORE","confidence":0.0,"extractedData":{"title":null,"suggestedTime":null,"venue":null}}`;
+Milwaukee context (always assume local unless another city is explicit):
+- Timezone: America/Chicago
+- "lake front" / "lakefront" / "lake park" / "bradford" → Lake Park Tennis Courts, 3233 N Lake Dr, Milwaukee, WI 53211 (lat 43.0665, lng -87.8708)
+- Veterans / McKinley → 1010 N Lincoln Memorial Dr, Milwaukee, WI 53202
+- Humboldt Park, Washington Park, Wilson Park, Oak Creek, Wauwatosa/Hart Park are also common
+
+Time intelligence (critical):
+- Bare hours like "at 6", "6 tomorrow", "lets play at 6" for tennis almost always mean 6 PM, NOT 6 AM.
+- Prefer PM for hours 1–8 when am/pm is omitted. Morning only if explicit (6am, sunrise, before work, early morning).
+- suggestedTime MUST be ISO-8601 with America/Chicago offset when possible (e.g. 2026-07-29T18:00:00-05:00).
+- If only a weekday/relative day is given, resolve relative to "now" in America/Chicago.
+
+Extraction rules for CREATE_EVENT:
+- Fill every field you can infer. Invent a short clear title if needed (e.g. "Lakefront tennis tomorrow 6pm").
+- locationName = friendly court/park name; address = precise street address; include lat/lng when known from Milwaukee venues above.
+- instructions = meetup tips, what to bring, how to find courts, parking, "bring balls", etc. Infer sensible defaults if not stated (e.g. "Meet at the Lake Park courts near Bradford Beach. Bring a can of balls if you can.").
+- notes = anything else useful (weather contingency, open hit vs sets).
+- skillLevel if implied (beginner/intermediate/advanced/all levels).
+- courtInfo if mentioned (court #, indoor/outdoor, lights).
+- durationMinutes default 90 if unspecified.
+- Be slightly assertive on CREATE_EVENT when someone clearly wants to play; still IGNORE pure jokes.
+
+Return ONLY one minified JSON object. No markdown.
+Schema:
+{"intent":"CREATE_EVENT"|"RSVP_YES"|"RSVP_NO"|"IGNORE","confidence":0.0,"extractedData":{"title":null,"suggestedTime":null,"venue":null,"locationName":null,"address":null,"latitude":null,"longitude":null,"instructions":null,"notes":null,"skillLevel":null,"courtInfo":null,"durationMinutes":90,"timezone":"America/Chicago"}}`;
 
 // ─────────────────────────── xAI / Grok ───────────────────────────
 
@@ -120,14 +148,27 @@ Rules:
  * @returns {Promise<AnalysisResult>}
  */
 async function analyzeWithxAI(payload) {
+  const nowChi = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago',
+    weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date());
+
   const userContent = JSON.stringify({
     kind: payload.kind,
     text: payload.text,
     reaction: payload.reaction,
+    nowAmericaChicago: nowChi,
+    locale: 'Milwaukee, WI',
     hint:
       payload.kind === 'reaction'
-        ? 'This is a WhatsApp reaction on a prior message that may be a match invitation.'
-        : 'This is a WhatsApp group message.',
+        ? 'WhatsApp reaction on a prior message that may be a match invitation.'
+        : 'WhatsApp group message about tennis in Milwaukee. Extract max structured fields. Bare hour → prefer PM.',
   });
 
   let response;
@@ -206,6 +247,16 @@ function parseAnalysisJson(raw) {
         title: nullableString(extracted.title),
         suggestedTime: nullableString(extracted.suggestedTime),
         venue: nullableString(extracted.venue),
+        locationName: nullableString(extracted.locationName),
+        address: nullableString(extracted.address),
+        latitude: nullableNumber(extracted.latitude),
+        longitude: nullableNumber(extracted.longitude),
+        instructions: nullableString(extracted.instructions),
+        notes: nullableString(extracted.notes),
+        skillLevel: nullableString(extracted.skillLevel),
+        courtInfo: nullableString(extracted.courtInfo),
+        durationMinutes: nullableNumber(extracted.durationMinutes),
+        timezone: nullableString(extracted.timezone) || 'America/Chicago',
       },
     };
   } catch (err) {
@@ -239,12 +290,33 @@ function nullableString(value) {
   return s.length ? s : null;
 }
 
+/** @param {unknown} value @returns {number | null} */
+function nullableNumber(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 /** @param {number} confidence @returns {AnalysisResult} */
 function ignoreResult(confidence) {
   return {
     intent: 'IGNORE',
     confidence,
-    extractedData: { title: null, suggestedTime: null, venue: null },
+    extractedData: {
+      title: null,
+      suggestedTime: null,
+      venue: null,
+      locationName: null,
+      address: null,
+      latitude: null,
+      longitude: null,
+      instructions: null,
+      notes: null,
+      skillLevel: null,
+      courtInfo: null,
+      durationMinutes: null,
+      timezone: 'America/Chicago',
+    },
   };
 }
 
@@ -304,6 +376,7 @@ async function dispatchIntent(payload, analysis) {
   }
 
   if (analysis.intent === 'CREATE_EVENT') {
+    const x = analysis.extractedData;
     const body = {
       senderPhone: payload.senderPhone,
       senderLid: payload.senderLid ?? null,
@@ -311,9 +384,19 @@ async function dispatchIntent(payload, analysis) {
       senderName: payload.senderName ?? null,
       messageBody: payload.text ?? '',
       whatsappMessageId: payload.whatsappMessageId,
-      title: analysis.extractedData.title,
-      suggestedTime: analysis.extractedData.suggestedTime,
-      venue: analysis.extractedData.venue,
+      title: x.title,
+      suggestedTime: x.suggestedTime,
+      venue: x.venue,
+      locationName: x.locationName,
+      address: x.address,
+      latitude: x.latitude,
+      longitude: x.longitude,
+      instructions: x.instructions,
+      notes: x.notes,
+      skillLevel: x.skillLevel,
+      courtInfo: x.courtInfo,
+      durationMinutes: x.durationMinutes,
+      timezone: x.timezone || 'America/Chicago',
       confidence: analysis.confidence,
     };
     if ((!body.senderPhone && !body.senderLid) || !body.whatsappMessageId) {
@@ -328,6 +411,9 @@ async function dispatchIntent(payload, analysis) {
       );
       return;
     }
+    console.log(
+      `[whatsapp-bot] CREATE_EVENT extract title=${body.title} time=${body.suggestedTime} place=${body.locationName || body.venue} addr=${body.address}`,
+    );
     await postToApp('/api/whatsapp/create-event', body);
     return;
   }

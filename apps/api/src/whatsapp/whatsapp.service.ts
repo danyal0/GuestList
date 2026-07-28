@@ -9,6 +9,11 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { digitsOnly } from './whatsapp-bot.guard';
 import {
+  buildEventDescription,
+  preferPmForTennisHour,
+  resolveMilwaukeeVenue,
+} from './whatsapp-event-enrich';
+import {
   findOrLinkWhatsappUser,
   resolveWhatsappDefaultGroup,
 } from './whatsapp-identity';
@@ -29,6 +34,16 @@ export class WhatsappService {
     title?: string | null;
     suggestedTime?: string | null;
     venue?: string | null;
+    locationName?: string | null;
+    address?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    instructions?: string | null;
+    notes?: string | null;
+    skillLevel?: string | null;
+    courtInfo?: string | null;
+    durationMinutes?: number | null;
+    timezone?: string | null;
     confidence?: number;
   }) {
     const senderPhone = digitsOnly(body.senderPhone) ?? '';
@@ -115,19 +130,76 @@ export class WhatsappService {
       deriveTitleFromMessage(messageBody) ||
       'Tennis match';
 
-    const venue =
+    const venueClue = [body.locationName, body.venue, body.address, messageBody]
+      .filter(Boolean)
+      .join(' ');
+    const catalog = resolveMilwaukeeVenue(venueClue);
+
+    // Prefer curated Milwaukee court names over casual clues like "lake front".
+    const locationName =
+      catalog?.locationName ||
+      (body.locationName && body.locationName.trim()) ||
       (body.venue && body.venue.trim()) ||
       process.env.WHATSAPP_DEFAULT_VENUE ||
       null;
 
-    const { startTime, endTime } = resolveSchedule(body.suggestedTime);
-    const description = [
-      messageBody || 'Match proposed via WhatsApp.',
-      body.suggestedTime ? `Suggested time clue: ${body.suggestedTime}` : null,
-      `Source: WhatsApp message ${whatsappMessageId}`,
+    const address =
+      (body.address && body.address.trim()) ||
+      catalog?.address ||
+      locationName;
+
+    const latitude =
+      (typeof body.latitude === 'number' && Number.isFinite(body.latitude)
+        ? body.latitude
+        : null) ??
+      catalog?.latitude ??
+      null;
+    const longitude =
+      (typeof body.longitude === 'number' && Number.isFinite(body.longitude)
+        ? body.longitude
+        : null) ??
+      catalog?.longitude ??
+      null;
+
+    const timezone =
+      (body.timezone && body.timezone.trim()) ||
+      process.env.WHATSAPP_DEFAULT_TIMEZONE ||
+      'America/Chicago';
+
+    const durationMinutes =
+      (typeof body.durationMinutes === 'number' &&
+      Number.isFinite(body.durationMinutes) &&
+      body.durationMinutes > 0
+        ? body.durationMinutes
+        : null) ??
+      Number(process.env.WHATSAPP_DEFAULT_EVENT_DURATION_MINUTES || '90');
+
+    const { startTime, endTime } = resolveSchedule(body.suggestedTime, {
+      timezone,
+      durationMinutes,
+      messageBody,
+    });
+
+    const notes = [
+      body.notes?.trim() || null,
+      catalog?.notes || null,
     ]
       .filter(Boolean)
-      .join('\n\n');
+      .join('\n');
+
+    const description = buildEventDescription({
+      messageBody,
+      instructions: body.instructions,
+      notes: notes || null,
+      skillLevel: body.skillLevel,
+      courtInfo: body.courtInfo,
+      suggestedTime: body.suggestedTime,
+      whatsappMessageId,
+    });
+
+    this.logger.log(
+      `Creating event "${title}" @ ${locationName ?? 'n/a'} ${address ?? ''} ${startTime.toISOString()} (${timezone})`,
+    );
 
     const event = await this.prisma.event.create({
       data: {
@@ -136,9 +208,11 @@ export class WhatsappService {
         title,
         description,
         mode: 'IN_PERSON',
-        locationName: venue,
-        address: venue,
-        timezone: process.env.WHATSAPP_DEFAULT_TIMEZONE || 'UTC',
+        locationName,
+        address,
+        latitude,
+        longitude,
+        timezone,
         startTime,
         endTime,
         status: 'PUBLISHED',
@@ -151,6 +225,10 @@ export class WhatsappService {
         startTime: true,
         endTime: true,
         locationName: true,
+        address: true,
+        latitude: true,
+        longitude: true,
+        timezone: true,
         whatsappMessageId: true,
         hostId: true,
         groupId: true,
@@ -325,23 +403,27 @@ function deriveTitleFromMessage(messageBody: string): string | null {
   return `${firstLine.slice(0, 77)}…`;
 }
 
-function resolveSchedule(suggestedTime: string | null | undefined): {
-  startTime: Date;
-  endTime: Date;
-} {
-  const durationMinutes = Number(
-    process.env.WHATSAPP_DEFAULT_EVENT_DURATION_MINUTES || '90',
-  );
+function resolveSchedule(
+  suggestedTime: string | null | undefined,
+  opts: { timezone: string; durationMinutes: number; messageBody?: string },
+): { startTime: Date; endTime: Date } {
   const durationMs =
-    (Number.isFinite(durationMinutes) ? durationMinutes : 90) * 60 * 1000;
+    (Number.isFinite(opts.durationMinutes) ? opts.durationMinutes : 90) *
+    60 *
+    1000;
 
-  let start = tryParseDate(suggestedTime);
+  let start =
+    tryParseIso(suggestedTime) ||
+    tryParseCasualTennisTime(suggestedTime, opts.timezone) ||
+    tryParseCasualTennisTime(opts.messageBody, opts.timezone);
 
   if (!start) {
-    const hour = Number(process.env.WHATSAPP_DEFAULT_HOUR || '10');
-    start = new Date();
-    start.setUTCDate(start.getUTCDate() + 1);
-    start.setUTCHours(Number.isFinite(hour) ? hour : 10, 0, 0, 0);
+    // Default: tomorrow 6pm America/Chicago (tennis-friendly), not 10am UTC.
+    start = zonedLocalDate(opts.timezone, {
+      dayOffset: 1,
+      hour: 18,
+      minute: 0,
+    });
   }
 
   return {
@@ -350,9 +432,136 @@ function resolveSchedule(suggestedTime: string | null | undefined): {
   };
 }
 
-function tryParseDate(value: string | null | undefined): Date | null {
+function tryParseIso(value: string | null | undefined): Date | null {
   if (!value) return null;
-  const d = new Date(value);
+  const trimmed = value.trim();
+  if (!/\d/.test(trimmed)) return null;
+  // Only treat as ISO/Date.parse when it looks like a real datetime, not "at 6".
+  if (!/\d{4}-\d{2}-\d{2}/.test(trimmed) && !/T\d{2}:/.test(trimmed)) {
+    return null;
+  }
+  const d = new Date(trimmed);
   if (Number.isNaN(d.getTime())) return null;
   return d;
+}
+
+/**
+ * Parse clues like "tomorrow at 6", "Sat 6pm", "6:30".
+ * Bare hours 1–8 → PM for tennis unless am is explicit.
+ */
+function tryParseCasualTennisTime(
+  value: string | null | undefined,
+  timeZone: string,
+): Date | null {
+  if (!value) return null;
+  const text = value.toLowerCase();
+
+  const explicitAmPm = /\b(am|pm|a\.m\.|p\.m\.)\b/i.test(text);
+  const timeMatch = text.match(
+    /\b(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\b/i,
+  );
+  if (!timeMatch) return null;
+
+  let hour = Number(timeMatch[1]);
+  const minute = timeMatch[2] ? Number(timeMatch[2]) : 0;
+  const meridiem = (timeMatch[3] || '').toLowerCase().replace(/\./g, '');
+
+  if (!Number.isFinite(hour) || hour < 0 || hour > 23) return null;
+  if (minute < 0 || minute > 59) return null;
+
+  if (meridiem === 'pm' && hour < 12) hour += 12;
+  else if (meridiem === 'am' && hour === 12) hour = 0;
+  else if (!meridiem) {
+    hour = preferPmForTennisHour(hour, false);
+  }
+
+  let dayOffset = 0;
+  if (/\btomorrow\b/.test(text)) dayOffset = 1;
+  else if (/\btoday\b/.test(text)) dayOffset = 0;
+  else {
+    const weekdays = [
+      'sunday',
+      'monday',
+      'tuesday',
+      'wednesday',
+      'thursday',
+      'friday',
+      'saturday',
+    ];
+    for (let i = 0; i < weekdays.length; i += 1) {
+      if (text.includes(weekdays[i]!) || text.includes(weekdays[i]!.slice(0, 3))) {
+        const now = new Date();
+        const parts = new Intl.DateTimeFormat('en-US', {
+          timeZone,
+          weekday: 'short',
+        }).formatToParts(now);
+        const wd = parts.find((p) => p.type === 'weekday')?.value ?? 'Sun';
+        const map: Record<string, number> = {
+          Sun: 0,
+          Mon: 1,
+          Tue: 2,
+          Wed: 3,
+          Thu: 4,
+          Fri: 5,
+          Sat: 6,
+        };
+        const current = map[wd] ?? now.getUTCDay();
+        dayOffset = (i - current + 7) % 7 || 7;
+        break;
+      }
+    }
+    // "at 6" with no day → if that hour already passed today, use tomorrow.
+    if (dayOffset === 0 && !/\btoday\b/.test(text)) {
+      const candidate = zonedLocalDate(timeZone, { dayOffset: 0, hour, minute });
+      if (candidate.getTime() < Date.now() - 5 * 60 * 1000) dayOffset = 1;
+    }
+  }
+
+  return zonedLocalDate(timeZone, { dayOffset, hour, minute });
+}
+
+function zonedLocalDate(
+  timeZone: string,
+  parts: { dayOffset: number; hour: number; minute: number },
+): Date {
+  // Build "now" wall-clock in the target zone, then apply offsets.
+  const now = new Date();
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+  const bags = Object.fromEntries(
+    fmt.formatToParts(now).map((p) => [p.type, p.value]),
+  ) as Record<string, string>;
+
+  const baseUtcGuess = Date.UTC(
+    Number(bags.year),
+    Number(bags.month) - 1,
+    Number(bags.day) + parts.dayOffset,
+    parts.hour,
+    parts.minute,
+    0,
+  );
+
+  // Correct for the zone offset at that instant.
+  const asLocal = new Date(baseUtcGuess);
+  const shiftedBags = Object.fromEntries(
+    fmt.formatToParts(asLocal).map((p) => [p.type, p.value]),
+  ) as Record<string, string>;
+  const asLocalUtc = Date.UTC(
+    Number(shiftedBags.year),
+    Number(shiftedBags.month) - 1,
+    Number(shiftedBags.day),
+    Number(shiftedBags.hour),
+    Number(shiftedBags.minute),
+    Number(shiftedBags.second || '0'),
+  );
+  const offsetMs = asLocalUtc - baseUtcGuess;
+  return new Date(baseUtcGuess - offsetMs);
 }
