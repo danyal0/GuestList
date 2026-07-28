@@ -37,17 +37,20 @@ function TagEditor({
 
   const add = () => {
     const value = input.trim().toLowerCase();
-    if (value && !tags.includes(value) && tags.length < 20) {
-      onChange([...tags, value]);
+    const current = Array.isArray(tags) ? tags : [];
+    if (value && !current.includes(value) && current.length < 20) {
+      onChange([...current, value]);
     }
     setInput('');
   };
+
+  const safeTags = Array.isArray(tags) ? tags : [];
 
   return (
     <div>
       <Label htmlFor={id}>{label}</Label>
       <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-2">
-        {tags.map((tag) => (
+        {safeTags.map((tag) => (
           <span
             key={tag}
             className="flex items-center gap-1 rounded-full bg-[var(--color-accent-soft)] px-3 py-1 text-[13px] font-semibold text-[var(--color-accent)]"
@@ -56,7 +59,7 @@ function TagEditor({
             <button
               type="button"
               aria-label={`Remove ${tag}`}
-              onClick={() => onChange(tags.filter((t) => t !== tag))}
+              onClick={() => onChange(safeTags.filter((t) => t !== tag))}
               className="rounded-full hover:bg-black/10"
             >
               <X className="h-3 w-3" />
@@ -74,7 +77,7 @@ function TagEditor({
             }
           }}
           onBlur={add}
-          placeholder={tags.length === 0 ? placeholder : 'Add more…'}
+          placeholder={safeTags.length === 0 ? placeholder : 'Add more…'}
           className="min-w-[120px] flex-1 bg-transparent px-2 py-1.5 text-[14px] outline-none placeholder:text-[var(--color-ink-tertiary)]"
         />
       </div>
@@ -96,8 +99,8 @@ export default function SettingsPage() {
     if (hydrated && !user) router.replace('/login?next=/settings');
     if (user && !initialized.current) {
       initialized.current = true;
-      setInterests(user.interests);
-      setSkills(user.skills);
+      setInterests(Array.isArray(user.interests) ? user.interests : []);
+      setSkills(Array.isArray(user.skills) ? user.skills : []);
       setAvatarUrl(user.avatarUrl);
       void api<{ suggestions: LinkSuggestion[] }>('/auth/link-suggestions')
         .then((data) => setLinkSuggestions(data.suggestions ?? []))
@@ -210,7 +213,12 @@ export default function SettingsPage() {
             <dt className="text-[var(--color-ink-tertiary)]">WhatsApp</dt>
             <dd className="font-medium text-right">
               {user.whatsappLinked ? (
-                <>Linked{user.whatsappLid ? ` · LID …${user.whatsappLid.slice(-6)}` : ''}</>
+                <>
+                  Linked
+                  {user.whatsappLid
+                    ? ` · LID …${String(user.whatsappLid).slice(-6)}`
+                    : ''}
+                </>
               ) : (
                 <>Not linked — send any message in your tennis WhatsApp group</>
               )}
@@ -244,7 +252,7 @@ export default function SettingsPage() {
 
       {/* Avatar */}
       <section className="flex items-center gap-5">
-        <Avatar src={avatarUrl} name={user.name} size="xl" />
+        <Avatar src={avatarUrl} name={user.name || 'Member'} size="xl" />
         <div>
           <label className="inline-block cursor-pointer">
             <span className="rounded-[var(--radius-md)] bg-[var(--color-surface-3)] px-4 py-2.5 text-[14px] font-semibold transition-colors hover:bg-[var(--color-accent-soft)]">

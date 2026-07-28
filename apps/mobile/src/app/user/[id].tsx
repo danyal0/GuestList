@@ -44,15 +44,19 @@ export default function UserProfileScreen() {
 
   const { user: person, stats } = profile.data;
   const isSelf = user?.id === person.id;
+  const interests = Array.isArray(person.interests) ? person.interests : [];
+  const skills = Array.isArray(person.skills) ? person.skills : [];
 
   return (
     <>
-      <Stack.Screen options={{ title: person.name }} />
+      <Stack.Screen options={{ title: person.name || 'Member' }} />
       <ScrollView contentContainerStyle={{ padding: spacing.lg, gap: spacing.xl, paddingBottom: 48 }}>
         <View style={{ alignItems: 'center', gap: spacing.md }}>
-          <Avatar uri={person.avatarUrl} name={person.name} size={88} />
+          <Avatar uri={person.avatarUrl} name={person.name || 'Member'} size={88} />
           <View style={{ alignItems: 'center', gap: 4 }}>
-            <Text style={{ fontSize: 24, fontWeight: '800', color: colors.ink }}>{person.name}</Text>
+            <Text style={{ fontSize: 24, fontWeight: '800', color: colors.ink }}>
+              {person.name || 'Member'}
+            </Text>
             {person.location && <Text style={{ fontSize: 14, color: colors.inkSecondary }}>{person.location}</Text>}
           </View>
           {person.bio && (
@@ -87,21 +91,21 @@ export default function UserProfileScreen() {
           ))}
         </View>
 
-        {person.interests.length > 0 && (
+        {interests.length > 0 && (
           <View style={{ gap: spacing.sm }}>
             <Text style={{ fontSize: 16, fontWeight: '700', color: colors.ink }}>Interests</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {person.interests.map((interest) => (
+              {interests.map((interest) => (
                 <Badge key={interest} label={interest} tone="neutral" />
               ))}
             </View>
           </View>
         )}
-        {person.skills.length > 0 && (
+        {skills.length > 0 && (
           <View style={{ gap: spacing.sm }}>
             <Text style={{ fontSize: 16, fontWeight: '700', color: colors.ink }}>Skills</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {person.skills.map((skill) => (
+              {skills.map((skill) => (
                 <Badge key={skill} label={skill} tone="accent" />
               ))}
             </View>

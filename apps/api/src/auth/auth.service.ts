@@ -23,6 +23,7 @@ import {
   findNamedPlaceholderSuggestions,
   type NamedProfileLinkSuggestion,
 } from '../whatsapp/whatsapp-identity';
+import { toAuthPublicUser } from '../users/users.service';
 
 export interface AuthResult {
   user: PublicUser;
@@ -323,22 +324,7 @@ export class AuthService {
   }
 
   toPublicUser(user: User): PublicUser {
-    return {
-      id: user.id,
-      email: user.email,
-      phone: user.phone,
-      whatsappLid: user.whatsappLid,
-      whatsappLinked: Boolean(user.whatsappLid),
-      name: user.name,
-      avatarUrl: user.avatarUrl,
-      bio: user.bio,
-      location: user.location,
-      role: user.role,
-      interests: user.interests,
-      skills: user.skills,
-      emailVerified: user.emailVerifiedAt !== null,
-      createdAt: user.createdAt,
-    };
+    return toAuthPublicUser(user) as PublicUser;
   }
 
   private async upsertOAuthUser(identity: OAuthIdentity, meta: RequestMeta): Promise<AuthResult> {

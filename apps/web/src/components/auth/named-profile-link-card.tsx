@@ -90,7 +90,7 @@ export function NamedProfileLinkCard({
           >
             <p className="text-[14px] font-semibold">{suggestion.name}</p>
             <ul className="mt-2 space-y-1.5">
-              {suggestion.clues.slice(0, 3).map((clue) => (
+              {(suggestion.clues ?? []).slice(0, 3).map((clue) => (
                 <li
                   key={clue.eventId}
                   className="text-[13px] leading-snug text-[var(--color-ink-secondary)]"

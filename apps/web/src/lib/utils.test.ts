@@ -65,4 +65,23 @@ describe('initials', () => {
   it('caps at two initials', () => {
     expect(initials('Jean Luc Picard')).toBe('JL');
   });
+
+  it('returns ? for empty or missing names', () => {
+    expect(initials('')).toBe('?');
+    expect(initials(null)).toBe('?');
+    expect(initials(undefined)).toBe('?');
+  });
+});
+
+describe('invalid dates', () => {
+  it('formatDate returns empty string for invalid input', () => {
+    expect(formatDate(undefined)).toBe('');
+    expect(formatDate(null)).toBe('');
+    expect(formatDate('not-a-date')).toBe('');
+  });
+
+  it('formatRelative returns empty string for invalid input', () => {
+    expect(formatRelative(undefined)).toBe('');
+    expect(formatRelative('nope')).toBe('');
+  });
 });

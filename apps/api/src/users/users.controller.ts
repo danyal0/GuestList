@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { ActivityType } from '@prisma/client';
-import { UsersService, PublicUserSummary } from './users.service';
+import { UsersService, PublicUserSummary, toAuthPublicUser } from './users.service';
 import { UpdateUserDto } from './dto/user.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../common/types/auth-user';
@@ -16,8 +16,9 @@ export class UsersController {
   @Patch('me')
   async updateMe(@CurrentUser() user: AuthUser, @Body() dto: UpdateUserDto) {
     const updated = await this.usersService.updateMe(user.id, dto);
-    const { passwordHash, googleId, appleId, ...safe } = updated;
-    return safe;
+    // Same shape as /auth/me — raw Prisma rows lack whatsappLinked/emailVerified
+    // and can omit interests/skills, which crashed Settings after save.
+    return toAuthPublicUser(updated);
   }
 
   @Delete('me')
