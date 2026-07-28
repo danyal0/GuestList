@@ -48,7 +48,10 @@ export function EventCard({ event }: { event: EventSummary }) {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
           <Text style={{ fontSize: 13, color: colors.inkTertiary }}>
             {event.goingCount} going
-            {event.spotsLeft !== null && event.spotsLeft <= 5 && event.spotsLeft > 0
+            {typeof event.spotsLeft === 'number' &&
+            Number.isFinite(event.spotsLeft) &&
+            event.spotsLeft <= 5 &&
+            event.spotsLeft > 0
               ? ` · ${event.spotsLeft} spots left`
               : ''}
           </Text>

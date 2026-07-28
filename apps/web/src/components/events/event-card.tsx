@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { CalendarDays, MapPin, Users, Video } from 'lucide-react';
 import type { EventSummary } from '@/lib/types';
+import { hasCapacity, hasSpotsLeft } from '@/lib/capacity';
 import { Badge } from '@/components/ui/badge';
 import { cn, formatDate, formatTime } from '@/lib/utils';
 
@@ -20,7 +21,7 @@ const CATEGORY_GRADIENTS: Record<string, string> = {
 
 export function EventCard({ event, className }: { event: EventSummary; className?: string }) {
   const gradient = CATEGORY_GRADIENTS[event.group.category] ?? 'from-slate-500 to-slate-700';
-  const isFull = event.spotsLeft === 0;
+  const isFull = hasCapacity(event.capacity) && hasSpotsLeft(event.spotsLeft) && event.spotsLeft === 0;
   const cancelled = event.status === 'CANCELLED';
 
   return (

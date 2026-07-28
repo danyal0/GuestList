@@ -138,13 +138,16 @@ export class FileStore {
 
     // Seed / refresh canonical venues from catalog JSON (idempotent by slug).
     try {
-      const catalogPath = join(__dirname, '..', '..', 'data', 'venues-catalog.json');
+      const catalogPath = join(__dirname, '..', 'data', 'venues-catalog.json');
       const seedPath = join(process.cwd(), 'data', 'venues-catalog.json');
+      const srcPath = join(process.cwd(), 'src', 'data', 'venues-catalog.json');
       const pathToUse = existsSync(catalogPath)
         ? catalogPath
-        : existsSync(seedPath)
-          ? seedPath
-          : join(process.cwd(), 'apps', 'api', 'data', 'venues-catalog.json');
+        : existsSync(srcPath)
+          ? srcPath
+          : existsSync(seedPath)
+            ? seedPath
+            : join(process.cwd(), 'apps', 'api', 'src', 'data', 'venues-catalog.json');
       if (existsSync(pathToUse)) {
         const catalog = JSON.parse(readFileSync(pathToUse, 'utf8')) as Array<
           Record<string, unknown>
@@ -168,6 +171,8 @@ export class FileStore {
                 longitude: row.longitude,
                 aliases: row.aliases,
                 notes: row.notes ?? null,
+                courtCount: row.courtCount ?? null,
+                defaultCapacity: row.defaultCapacity ?? null,
                 source: 'catalog',
                 verifiedAt: now,
                 updatedAt: now,
@@ -189,6 +194,8 @@ export class FileStore {
             longitude: row.longitude,
             aliases: row.aliases,
             notes: row.notes ?? null,
+            courtCount: row.courtCount ?? null,
+            defaultCapacity: row.defaultCapacity ?? null,
             source: 'catalog',
             verifiedAt: now,
             createdAt: now,

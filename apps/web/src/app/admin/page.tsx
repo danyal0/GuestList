@@ -271,7 +271,8 @@ export default function AdminPage() {
                     <span className="min-w-0 truncate font-semibold">{event.title}</span>
                     <span className="shrink-0 text-[var(--color-ink-secondary)]">
                       {event.goingCount} attended
-                      {event.attendanceRate !== null && ` · ${event.attendanceRate}% of capacity`}
+                      {typeof event.attendanceRate === 'number' &&
+                        ` · ${event.attendanceRate}% of capacity`}
                     </span>
                   </li>
                 ))}

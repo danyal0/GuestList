@@ -6,14 +6,24 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { NotificationType, RsvpStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NOTIFY_EVENT, NotifyPayload } from '../notifications/notification.events';
 import { digitsOnly } from './whatsapp-bot.guard';
 import {
   buildEventDescription,
+  detectRescheduleCues,
+  extractMapsUrls,
+  inferEventCapacity,
+  mergeNamedAttendees,
   preferPmForTennisHour,
   resolveCatalogVenue,
+  scoreRescheduleCandidate,
+  type RescheduleCandidate,
 } from './whatsapp-event-enrich';
 import {
+  findOrCreateNamedAttendee,
   findOrLinkWhatsappUser,
   resolveWhatsappDefaultGroup,
 } from './whatsapp-identity';
@@ -22,7 +32,10 @@ import {
 export class WhatsappService {
   private readonly logger = new Logger(WhatsappService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   async createEvent(body: {
     senderPhone?: string;
@@ -46,8 +59,14 @@ export class WhatsappService {
     skillLevel?: string | null;
     courtInfo?: string | null;
     durationMinutes?: number | null;
+    capacity?: number | null;
+    capacityConfidence?: number | null;
+    namedAttendees?: string[] | null;
     timezone?: string | null;
     confidence?: number;
+    /** 0–1 from AI: host is changing an existing plan. */
+    rescheduleConfidence?: number | null;
+    isReschedule?: boolean | null;
   }) {
     const senderPhone = digitsOnly(body.senderPhone) ?? '';
     const senderLid = digitsOnly(body.senderLid) ?? '';
@@ -222,6 +241,28 @@ export class WhatsappService {
     // Instructions: only from the message/AI when present — no invented defaults.
     const instructions = body.instructions?.trim() || null;
 
+    const namedAttendees = mergeNamedAttendees(
+      body.namedAttendees,
+      messageBody,
+      [host.name, body.senderName ?? ''].filter(Boolean),
+    );
+
+    const capacity = inferEventCapacity({
+      aiCapacity: body.capacity,
+      capacityConfidence: body.capacityConfidence,
+      courtInfo: body.courtInfo,
+      messageBody,
+      venue: catalog,
+    });
+
+    const mapsUrls = extractMapsUrls(messageBody);
+    const rescheduleCue = detectRescheduleCues(messageBody);
+    const rescheduleConfidence = Math.max(
+      rescheduleCue.confidence,
+      typeof body.rescheduleConfidence === 'number' ? body.rescheduleConfidence : 0,
+      body.isReschedule ? 0.85 : 0,
+    );
+
     const description = buildEventDescription({
       messageBody,
       instructions,
@@ -230,10 +271,110 @@ export class WhatsappService {
       courtInfo: body.courtInfo,
       suggestedTime: body.suggestedTime,
       whatsappMessageId,
+      capacity,
+      namedAttendees,
+      mapsUrls,
     });
 
+    const eventSelect = {
+      id: true,
+      title: true,
+      startTime: true,
+      endTime: true,
+      locationName: true,
+      address: true,
+      latitude: true,
+      longitude: true,
+      timezone: true,
+      capacity: true,
+      venueId: true,
+      whatsappMessageId: true,
+      hostId: true,
+      groupId: true,
+    } as const;
+
+    // Soft-match an existing plan when the host is rescheduling
+    // ("earlier than planned", "moved to 6", etc.).
+    if (rescheduleConfidence >= 0.7) {
+      const match = await this.findRescheduleTarget({
+        hostId: host.id,
+        groupId: group.id,
+        venueId,
+        locationName,
+        address,
+        startTime,
+        messageBody,
+        direction: rescheduleCue.direction,
+        timezone,
+      });
+      if (match) {
+        this.logger.log(
+          `Reschedule match event=${match.id} score=${match.score.toFixed(2)} cue="${rescheduleCue.matchedPhrase ?? 'ai'}" → ${startTime.toISOString()}`,
+        );
+        const previousStart = match.startTime;
+        const updatedDescription = appendWhatsappUpdate(
+          match.description,
+          messageBody,
+          whatsappMessageId,
+          mapsUrls,
+        );
+        const updated = await this.prisma.event.update({
+          where: { id: match.id },
+          data: {
+            title: title || match.title,
+            description: updatedDescription,
+            locationName: locationName ?? match.locationName,
+            address: address ?? match.address,
+            latitude: latitude ?? undefined,
+            longitude: longitude ?? undefined,
+            venueId: venueId ?? match.venueId,
+            timezone,
+            startTime,
+            endTime,
+            ...(capacity != null ? { capacity } : {}),
+          },
+          select: eventSelect,
+        });
+
+        const autoRsvped = await this.rsvpNamedAttendees(
+          updated.id,
+          host.id,
+          namedAttendees,
+        );
+
+        const scheduleChanged =
+          previousStart.getTime() !== updated.startTime.getTime() ||
+          match.locationName !== updated.locationName ||
+          match.address !== updated.address;
+
+        if (scheduleChanged) {
+          await this.notifyEventUpdated(updated, {
+            previousStart,
+            message: buildRescheduleNotifyMessage(updated, previousStart),
+            excludeUserId: host.id,
+          });
+          this.eventEmitter.emit('realtime.event.updated', {
+            eventId: updated.id,
+            event: updated,
+          });
+        }
+
+        return {
+          ok: true,
+          updated: true,
+          rescheduled: true,
+          event: updated,
+          namedAttendees: autoRsvped,
+          capacity: updated.capacity,
+        };
+      }
+      this.logger.log(
+        `Reschedule cues present (conf=${rescheduleConfidence}) but no strong candidate — creating new event`,
+      );
+    }
+
     this.logger.log(
-      `Creating event "${title}" venue=${catalog?.slug ?? 'n/a'} @ ${locationName ?? 'n/a'} ${address ?? ''} ${startTime.toISOString()} (${timezone})`,
+      `Creating event "${title}" venue=${catalog?.slug ?? 'n/a'} capacity=${capacity ?? 'unlimited'} attendees=[${namedAttendees.join(',')}] @ ${locationName ?? 'n/a'} ${address ?? ''} ${startTime.toISOString()} (${timezone})`,
     );
 
     const event = await this.prisma.event.create({
@@ -251,25 +392,12 @@ export class WhatsappService {
         timezone,
         startTime,
         endTime,
+        capacity,
         status: 'PUBLISHED',
         visibility: 'PUBLIC',
         whatsappMessageId,
       },
-      select: {
-        id: true,
-        title: true,
-        startTime: true,
-        endTime: true,
-        locationName: true,
-        address: true,
-        latitude: true,
-        longitude: true,
-        timezone: true,
-        venueId: true,
-        whatsappMessageId: true,
-        hostId: true,
-        groupId: true,
-      },
+      select: eventSelect,
     });
 
     await this.prisma.rsvp.upsert({
@@ -286,7 +414,153 @@ export class WhatsappService {
       },
     });
 
-    return { ok: true, event };
+    const autoRsvped = await this.rsvpNamedAttendees(
+      event.id,
+      host.id,
+      namedAttendees,
+    );
+
+    return { ok: true, event, namedAttendees: autoRsvped, capacity };
+  }
+
+  private async rsvpNamedAttendees(
+    eventId: string,
+    hostId: string,
+    namedAttendees: string[],
+  ): Promise<Array<{ id: string; name: string }>> {
+    const autoRsvped: Array<{ id: string; name: string }> = [];
+    for (const attendeeName of namedAttendees) {
+      try {
+        const person = await findOrCreateNamedAttendee(this.prisma, attendeeName);
+        if (!person || person.id === hostId) continue;
+        await this.prisma.rsvp.upsert({
+          where: {
+            eventId_userId: { eventId, userId: person.id },
+          },
+          create: {
+            eventId,
+            userId: person.id,
+            status: 'GOING',
+          },
+          update: {
+            status: 'GOING',
+          },
+        });
+        autoRsvped.push({ id: person.id, name: person.name });
+      } catch (err) {
+        this.logger.warn(
+          `Failed to auto-RSVP named attendee "${attendeeName}": ${(err as Error).message}`,
+        );
+      }
+    }
+    return autoRsvped;
+  }
+
+  private async findRescheduleTarget(opts: {
+    hostId: string;
+    groupId: string;
+    venueId: string | null;
+    locationName: string | null;
+    address: string | null;
+    startTime: Date;
+    messageBody: string;
+    direction: ReturnType<typeof detectRescheduleCues>['direction'];
+    timezone: string;
+  }): Promise<(RescheduleCandidate & { score: number }) | null> {
+    const windowStart = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const windowEnd = new Date(Date.now() + 48 * 60 * 60 * 1000);
+    const candidates = await this.prisma.event.findMany({
+      where: {
+        hostId: opts.hostId,
+        groupId: opts.groupId,
+        status: 'PUBLISHED',
+        startTime: { gte: windowStart, lte: windowEnd },
+      },
+      select: {
+        id: true,
+        title: true,
+        startTime: true,
+        endTime: true,
+        locationName: true,
+        address: true,
+        venueId: true,
+        whatsappMessageId: true,
+        description: true,
+        capacity: true,
+      },
+      orderBy: { startTime: 'asc' },
+      take: 25,
+    });
+
+    const scored = candidates
+      .map((c) => ({
+        ...c,
+        score: scoreRescheduleCandidate(c, {
+          venueId: opts.venueId,
+          locationName: opts.locationName,
+          address: opts.address,
+          newStart: opts.startTime,
+          messageBody: opts.messageBody,
+          direction: opts.direction,
+          timezone: opts.timezone,
+        }),
+      }))
+      .sort((a, b) => b.score - a.score);
+
+    const best = scored[0];
+    if (!best || best.score < 0.7) return null;
+    const second = scored[1];
+    if (second && best.score - second.score < 0.08 && second.score >= 0.7) {
+      this.logger.warn(
+        `Ambiguous reschedule candidates ${best.id} (${best.score}) vs ${second.id} (${second.score}) — skipping update`,
+      );
+      return null;
+    }
+    return best;
+  }
+
+  private async notifyEventUpdated(
+    event: {
+      id: string;
+      title: string;
+      startTime: Date;
+      locationName: string | null;
+    },
+    opts: { previousStart: Date; message: string; excludeUserId?: string },
+  ): Promise<void> {
+    const rsvps = await this.prisma.rsvp.findMany({
+      where: {
+        eventId: event.id,
+        status: {
+          in: [RsvpStatus.GOING, RsvpStatus.WAITLISTED, RsvpStatus.INTERESTED],
+        },
+        ...(opts.excludeUserId ? { userId: { not: opts.excludeUserId } } : {}),
+      },
+      select: { userId: true },
+    });
+
+    const when = event.startTime.toUTCString();
+    for (const rsvp of rsvps) {
+      this.eventEmitter.emit(NOTIFY_EVENT, {
+        userId: rsvp.userId,
+        type: NotificationType.EVENT_UPDATED,
+        payload: {
+          eventId: event.id,
+          eventTitle: event.title,
+          message: opts.message,
+          previousStart: opts.previousStart.toISOString(),
+          startTime: event.startTime.toISOString(),
+          locationName: event.locationName,
+        },
+        email: {
+          subject: `Updated: ${event.title}`,
+          heading: 'Event time/location updated',
+          body: `${opts.message}\n\nNew start (UTC): ${when}`,
+          ctaLabel: 'View event',
+          ctaPath: `/events/${event.id}`,
+        },
+      } satisfies NotifyPayload);
+    }
   }
 
   private async upsertCatalogVenue(catalog: {
@@ -495,6 +769,46 @@ function deriveTitleFromMessage(messageBody: string): string | null {
   const firstLine = trimmed.split(/\n/)[0]!.trim();
   if (firstLine.length <= 80) return firstLine;
   return `${firstLine.slice(0, 77)}…`;
+}
+
+function appendWhatsappUpdate(
+  previousDescription: string,
+  messageBody: string,
+  whatsappMessageId: string,
+  mapsUrls: string[],
+): string {
+  const stamp = new Date().toISOString();
+  const parts = [
+    previousDescription.trim(),
+    '---',
+    `Updated via WhatsApp (${stamp}):`,
+    messageBody.trim(),
+  ];
+  if (mapsUrls.length) {
+    parts.push(`Maps:\n${mapsUrls.join('\n')}`);
+  }
+  parts.push(`Update source: WhatsApp message ${whatsappMessageId}`);
+  return parts.join('\n\n');
+}
+
+function buildRescheduleNotifyMessage(
+  event: { title: string; startTime: Date; locationName: string | null },
+  previousStart: Date,
+): string {
+  const place = event.locationName ? ` at ${event.locationName}` : '';
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Chicago',
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+    return `"${event.title}" was updated via WhatsApp: now ${fmt.format(event.startTime)}${place} (was ${fmt.format(previousStart)}).`;
+  } catch {
+    return `"${event.title}" was updated via WhatsApp${place}.`;
+  }
 }
 
 function resolveSchedule(

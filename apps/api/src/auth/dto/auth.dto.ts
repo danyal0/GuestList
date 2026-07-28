@@ -120,3 +120,11 @@ export class ChangePasswordDto {
   @Matches(PASSWORD_PATTERN, { message: PASSWORD_MESSAGE })
   newPassword!: string;
 }
+
+export class ClaimNamedProfileDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
+  @Transform(({ value }) => String(value).trim())
+  placeholderUserId!: string;
+}

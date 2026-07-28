@@ -32,6 +32,7 @@ COPY --from=build /repo/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build /repo/apps/api/dist ./apps/api/dist
 COPY --from=build /repo/apps/api/prisma ./apps/api/prisma
 COPY --from=build /repo/apps/api/package.json ./apps/api/package.json
+COPY --from=build /repo/apps/api/scripts ./apps/api/scripts
 
 # Writable uploads dir (mount a volume in production).
 RUN mkdir -p /app/apps/api/uploads && chown -R mkeplays:mkeplays /app
@@ -43,5 +44,5 @@ EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
   CMD curl -sf http://localhost:4000/api/v1/health || exit 1
 
-# Apply pending migrations, then boot the API.
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+# Prefer start-prod (resolves dist/main.js vs dist/src/main.js; skips migrate in file mode).
+CMD ["node", "scripts/start-prod.cjs"]

@@ -1,9 +1,9 @@
 /**
  * Milwaukee-area tennis venue catalog + helpers.
- * Source of truth: apps/api/data/venues-catalog.json (also seeded into Venue table).
+ * Source of truth: apps/api/src/data/venues-catalog.json (also seeded into Venue table).
  */
 
-import catalogJson from '../../data/venues-catalog.json';
+import catalogJson from '../data/venues-catalog.json';
 
 export type SportCode = 'TENNIS';
 
@@ -19,6 +19,10 @@ export type CatalogVenue = {
   longitude: number;
   aliases: string[];
   notes?: string | null;
+  /** Number of playable courts at the venue (when known). */
+  courtCount?: number | null;
+  /** Suggested event capacity (typically courtCount × 4 for tennis). */
+  defaultCapacity?: number | null;
 };
 
 export const MILWAUKEE_TENNIS_VENUES = catalogJson as CatalogVenue[];
@@ -28,6 +32,61 @@ export type VenueMatch = {
   score: number;
   matchedAlias: string;
 };
+
+const NAME_STOPWORDS = new Set(
+  [
+    'i',
+    'im',
+    'i’m',
+    'me',
+    'my',
+    'we',
+    'us',
+    'you',
+    'he',
+    'she',
+    'they',
+    'anyone',
+    'someone',
+    'everybody',
+    'everyone',
+    'tomorrow',
+    'today',
+    'tonight',
+    'morning',
+    'afternoon',
+    'evening',
+    'tennis',
+    'court',
+    'courts',
+    'park',
+    'lake',
+    'front',
+    'lakefront',
+    'doubles',
+    'singles',
+    'open',
+    'play',
+    'playing',
+    'lets',
+    'let’s',
+    'please',
+    'thanks',
+    'who',
+    'what',
+    'when',
+    'where',
+    'need',
+    'also',
+    'going',
+    'down',
+    'around',
+    'after',
+    'before',
+    'pm',
+    'am',
+  ].map((s) => s.toLowerCase()),
+);
 
 export function resolveCatalogVenue(
   clue: string | null | undefined,
@@ -73,6 +132,144 @@ export function preferPmForTennisHour(hour24: number, explicitlyAmPm: boolean): 
   return hour24;
 }
 
+/**
+ * Infer event capacity from AI extraction, message cues, then venue courts.
+ * Prefer explicit party size / format; fall back to venue defaultCapacity
+ * (or courtCount × 4 for tennis open play).
+ */
+export function inferEventCapacity(input: {
+  aiCapacity?: number | null;
+  capacityConfidence?: number | null;
+  courtInfo?: string | null;
+  messageBody?: string | null;
+  venue?: CatalogVenue | null;
+  minConfidence?: number;
+}): number | null {
+  const minConfidence = input.minConfidence ?? 0.7;
+  if (
+    typeof input.aiCapacity === 'number' &&
+    Number.isFinite(input.aiCapacity) &&
+    input.aiCapacity >= 1 &&
+    (input.capacityConfidence == null || input.capacityConfidence >= minConfidence)
+  ) {
+    return Math.min(100_000, Math.floor(input.aiCapacity));
+  }
+
+  const text = `${input.courtInfo ?? ''} ${input.messageBody ?? ''}`
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+
+  const explicit =
+    text.match(
+      /\b(?:need|for|max|capacity|spots?(?:\s*(?:for|left|open))?|only)\s+(\d{1,3})\b/,
+    ) ||
+    text.match(/\b(\d{1,3})\s*(?:spots?|players?|people|ppl|guys|girls)\b/) ||
+    text.match(/\bparty\s*(?:of|size)?\s*(\d{1,3})\b/);
+  if (explicit?.[1]) {
+    const n = Number(explicit[1]);
+    if (n >= 1 && n <= 1000) return n;
+  }
+
+  const courts =
+    text.match(/\b(\d{1,2})\s*courts?\b/) ||
+    text.match(/\bcourts?\s*[:=]?\s*(\d{1,2})\b/);
+  if (courts?.[1]) {
+    const n = Number(courts[1]);
+    if (n >= 1 && n <= 40) return n * 4;
+  }
+
+  if (/\bsingles?\b/.test(text)) return 2;
+  if (/\bdoubles?\b/.test(text)) return 4;
+
+  const venue = input.venue;
+  if (venue) {
+    if (
+      typeof venue.defaultCapacity === 'number' &&
+      Number.isFinite(venue.defaultCapacity) &&
+      venue.defaultCapacity >= 1
+    ) {
+      return Math.floor(venue.defaultCapacity);
+    }
+    if (
+      typeof venue.courtCount === 'number' &&
+      Number.isFinite(venue.courtCount) &&
+      venue.courtCount >= 1
+    ) {
+      return Math.floor(venue.courtCount) * 4;
+    }
+    const fromNotes = venue.notes?.match(/\b(\d{1,2})\s+(?:lighted\s+)?(?:outdoor\s+)?(?:hard\s+)?courts?\b/i);
+    if (fromNotes?.[1]) {
+      const n = Number(fromNotes[1]);
+      if (n >= 1 && n <= 40) return n * 4;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extract first names of people the message says are going / playing
+ * (beyond the sender). Local fallback when AI omits namedAttendees.
+ */
+export function extractNamedAttendeesFromMessage(
+  messageBody: string | null | undefined,
+  opts: { excludeNames?: string[] } = {},
+): string[] {
+  if (!messageBody?.trim()) return [];
+  const exclude = new Set(
+    (opts.excludeNames ?? []).map((n) => n.trim().toLowerCase()).filter(Boolean),
+  );
+  const found: string[] = [];
+  const push = (raw: string | undefined) => {
+    if (!raw) return;
+    const name = raw.replace(/[^A-Za-zÀ-ÿ'’\-]/g, '').trim();
+    if (name.length < 2 || name.length > 40) return;
+    const key = name.toLowerCase();
+    if (NAME_STOPWORDS.has(key) || exclude.has(key)) return;
+    if (found.some((f) => f.toLowerCase() === key)) return;
+    found.push(name.charAt(0).toUpperCase() + name.slice(1));
+  };
+
+  const patterns = [
+    /\b([A-Za-zÀ-ÿ'’\-]{2,40})\s+is\s+(?:also\s+)?(?:going|in|down|coming|joining|playing)\b/gi,
+    /\b(?:also)\s+([A-Za-zÀ-ÿ'’\-]{2,40})\s+(?:is\s+)?(?:going|in|down|coming|joining)\b/gi,
+    /\b(?:with|plus|\+)\s+([A-Za-zÀ-ÿ'’\-]{2,40})\b/gi,
+    /\b([A-Za-zÀ-ÿ'’\-]{2,40})\s+(?:and\s+i|&?\s*i)\s+(?:are|will\s+be)?\s*(?:going|playing|in)?\b/gi,
+    /\bme\s+and\s+([A-Za-zÀ-ÿ'’\-]{2,40})\b/gi,
+    /\b([A-Za-zÀ-ÿ'’\-]{2,40})\s+and\s+(?:me|i)\b/gi,
+  ];
+
+  for (const re of patterns) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(messageBody)) !== null) {
+      push(m[1]);
+    }
+  }
+
+  return found;
+}
+
+export function mergeNamedAttendees(
+  aiNames: Array<string | null | undefined> | null | undefined,
+  messageBody: string | null | undefined,
+  excludeNames?: string[],
+): string[] {
+  const fromAi = (aiNames ?? [])
+    .map((n) => (n ?? '').trim())
+    .filter((n) => n.length >= 2 && n.length <= 40);
+  const fromMsg = extractNamedAttendeesFromMessage(messageBody, { excludeNames });
+  const out: string[] = [];
+  for (const name of [...fromAi, ...fromMsg]) {
+    const key = name.toLowerCase();
+    if (NAME_STOPWORDS.has(key)) continue;
+    if (excludeNames?.some((e) => e.toLowerCase() === key)) continue;
+    if (out.some((o) => o.toLowerCase() === key)) continue;
+    out.push(name);
+  }
+  return out;
+}
+
 export function buildEventDescription(parts: {
   messageBody?: string | null;
   instructions?: string | null;
@@ -81,6 +278,9 @@ export function buildEventDescription(parts: {
   courtInfo?: string | null;
   suggestedTime?: string | null;
   whatsappMessageId?: string | null;
+  capacity?: number | null;
+  namedAttendees?: string[] | null;
+  mapsUrls?: string[] | null;
 }): string {
   const blocks: string[] = [];
   if (parts.messageBody?.trim()) {
@@ -100,6 +300,15 @@ export function buildEventDescription(parts: {
   if (parts.courtInfo?.trim()) {
     blocks.push(`Courts: ${parts.courtInfo.trim()}`);
   }
+  if (typeof parts.capacity === 'number' && parts.capacity >= 1) {
+    blocks.push(`Capacity: ${parts.capacity} spots`);
+  }
+  if (parts.namedAttendees && parts.namedAttendees.length > 0) {
+    blocks.push(`Mentioned going: ${parts.namedAttendees.join(', ')}`);
+  }
+  if (parts.mapsUrls && parts.mapsUrls.length > 0) {
+    blocks.push(`Maps:\n${parts.mapsUrls.join('\n')}`);
+  }
   if (parts.suggestedTime?.trim()) {
     blocks.push(`Time clue: ${parts.suggestedTime.trim()}`);
   }
@@ -111,9 +320,155 @@ export function buildEventDescription(parts: {
 
 export function catalogVenuesForPrompt(sport: SportCode = 'TENNIS'): string {
   return MILWAUKEE_TENNIS_VENUES.filter((v) => v.sport === sport)
-    .map(
-      (v) =>
-        `- slug=${v.slug} name="${v.name}" address="${v.address}" aliases=[${v.aliases.join(', ')}] lat=${v.latitude} lng=${v.longitude}`,
-    )
+    .map((v) => {
+      const courts =
+        typeof v.courtCount === 'number' ? ` courts=${v.courtCount}` : '';
+      const cap =
+        typeof v.defaultCapacity === 'number'
+          ? ` defaultCapacity=${v.defaultCapacity}`
+          : '';
+      return `- slug=${v.slug} name="${v.name}" address="${v.address}" aliases=[${v.aliases.join(', ')}] lat=${v.latitude} lng=${v.longitude}${courts}${cap}`;
+    })
     .join('\n');
+}
+
+const RESCHEDULE_PATTERNS: Array<{ re: RegExp; direction: 'earlier' | 'later' | 'move' }> = [
+  { re: /\bearlier\s+than\s+planned\b/i, direction: 'earlier' },
+  { re: /\blater\s+than\s+planned\b/i, direction: 'later' },
+  { re: /\b(?:pushed|moved|shifted)\s+(?:it\s+)?(?:up|earlier)\b/i, direction: 'earlier' },
+  { re: /\b(?:pushed|moved|shifted)\s+(?:it\s+)?(?:back|later)\b/i, direction: 'later' },
+  { re: /\b(?:reschedul(?:e|ed|ing)|time\s+change|changed\s+(?:the\s+)?time)\b/i, direction: 'move' },
+  { re: /\binstead\s+of\s+(?:\d|the\s+earlier|before)\b/i, direction: 'move' },
+  { re: /\bnew\s+time\b/i, direction: 'move' },
+  { re: /\b(?:actually|now)\s+(?:at|around|about)\s+\d{1,2}/i, direction: 'move' },
+  { re: /\bmoving\s+(?:to|it\s+to)\b/i, direction: 'move' },
+];
+
+export type RescheduleCue = {
+  matched: boolean;
+  confidence: number;
+  direction: 'earlier' | 'later' | 'move' | null;
+  matchedPhrase: string | null;
+};
+
+/** Lexical detection that the host is changing an existing plan. */
+export function detectRescheduleCues(
+  messageBody: string | null | undefined,
+): RescheduleCue {
+  if (!messageBody?.trim()) {
+    return { matched: false, confidence: 0, direction: null, matchedPhrase: null };
+  }
+  for (const { re, direction } of RESCHEDULE_PATTERNS) {
+    const m = messageBody.match(re);
+    if (m) {
+      const confidence =
+        direction === 'earlier' || direction === 'later' ? 0.95 : 0.85;
+      return {
+        matched: true,
+        confidence,
+        direction,
+        matchedPhrase: m[0]!,
+      };
+    }
+  }
+  return { matched: false, confidence: 0, direction: null, matchedPhrase: null };
+}
+
+/** Pull Google Maps / Apple Maps short links from a WhatsApp body. */
+export function extractMapsUrls(messageBody: string | null | undefined): string[] {
+  if (!messageBody) return [];
+  const urls = messageBody.match(
+    /https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|maps\.google\.com|www\.google\.com\/maps|maps\.apple\.com)[^\s)]*/gi,
+  );
+  if (!urls?.length) return [];
+  const out: string[] = [];
+  for (const u of urls) {
+    const clean = u.replace(/[.,;]+$/, '');
+    if (!out.includes(clean)) out.push(clean);
+  }
+  return out;
+}
+
+export type RescheduleCandidate = {
+  id: string;
+  title: string;
+  startTime: Date;
+  endTime: Date;
+  locationName: string | null;
+  address: string | null;
+  venueId: string | null;
+  whatsappMessageId: string | null;
+  description: string;
+  capacity: number | null;
+};
+
+/**
+ * Score how likely an existing hosted event is the one being rescheduled.
+ * Returns 0–1.
+ */
+export function scoreRescheduleCandidate(
+  candidate: RescheduleCandidate,
+  opts: {
+    venueId: string | null;
+    locationName: string | null;
+    address: string | null;
+    newStart: Date;
+    messageBody: string;
+    direction: RescheduleCue['direction'];
+    timezone?: string;
+  },
+): number {
+  let score = 0;
+  const tz = opts.timezone || 'America/Chicago';
+  const hay = [
+    candidate.title,
+    candidate.locationName,
+    candidate.address,
+    candidate.description,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (opts.venueId && candidate.venueId && opts.venueId === candidate.venueId) {
+    score += 0.4;
+  } else {
+    const place = (opts.locationName || opts.address || '').toLowerCase();
+    if (place && hay.includes(place.slice(0, Math.min(12, place.length)))) {
+      score += 0.25;
+    } else if (/\batwater\b/i.test(opts.messageBody) && /\batwater\b/i.test(hay)) {
+      score += 0.35;
+    } else if (/\bmckinley|lake\s*front\b/i.test(opts.messageBody) && /mckinley|lake\s*front|lincoln memorial/i.test(hay)) {
+      score += 0.35;
+    }
+  }
+
+  if (sameCalendarDay(candidate.startTime, opts.newStart, tz)) {
+    score += 0.25;
+  }
+
+  const deltaMs = opts.newStart.getTime() - candidate.startTime.getTime();
+  const absHours = Math.abs(deltaMs) / (60 * 60 * 1000);
+  if (absHours <= 8) score += 0.15;
+  else if (absHours <= 18) score += 0.08;
+
+  if (opts.direction === 'earlier' && deltaMs < 0) score += 0.12;
+  if (opts.direction === 'later' && deltaMs > 0) score += 0.12;
+
+  if (/tennis/i.test(candidate.title) || /tennis/i.test(opts.messageBody)) {
+    score += 0.05;
+  }
+  if (candidate.whatsappMessageId) score += 0.05;
+
+  return Math.min(1, score);
+}
+
+function sameCalendarDay(a: Date, b: Date, timeZone: string): boolean {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return fmt.format(a) === fmt.format(b);
 }

@@ -17,6 +17,7 @@ import {
 import { api } from '@/lib/api';
 import type { EventDetail } from '@/lib/types';
 import { formatDate, formatTime } from '@/lib/utils';
+import { formatSpotsLabel, hasSpotsLeft } from '@/lib/capacity';
 import { useAuthStore } from '@/stores/auth-store';
 import { getSocket } from '@/lib/socket';
 import { Avatar } from '@/components/ui/avatar';
@@ -66,7 +67,7 @@ export default function EventDetailPage() {
   }
 
   const e = event.data;
-  const isFull = e.spotsLeft === 0;
+  const isFull = hasSpotsLeft(e.spotsLeft) && e.spotsLeft === 0;
 
   return (
     <article className="mx-auto max-w-3xl space-y-6">
@@ -153,11 +154,12 @@ export default function EventDetailPage() {
               {e.goingCount} going · {e.interestedCount} interested
             </p>
             <p className="text-[14px] text-[var(--color-ink-secondary)]">
-              {e.capacity !== null
-                ? isFull
-                  ? `Full — ${e.waitlistCount} on the waitlist`
-                  : `${e.spotsLeft} of ${e.capacity} spots left`
-                : 'Unlimited spots'}
+              {formatSpotsLabel({
+                capacity: e.capacity,
+                spotsLeft: e.spotsLeft,
+                waitlistCount: e.waitlistCount,
+                isFull,
+              })}
             </p>
           </div>
         </div>

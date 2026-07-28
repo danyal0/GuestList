@@ -18,11 +18,19 @@ import {
   isPlausiblePhone,
   normalizePhoneDigits,
 } from '../common/utils/phone';
+import {
+  claimNamedPlaceholder,
+  findNamedPlaceholderSuggestions,
+  type NamedProfileLinkSuggestion,
+} from '../whatsapp/whatsapp-identity';
 
 export interface AuthResult {
   user: PublicUser;
   tokens: TokenPair;
+  linkSuggestions?: NamedProfileLinkSuggestion[];
 }
+
+export type { NamedProfileLinkSuggestion };
 
 export interface PublicUser {
   id: string;
@@ -99,7 +107,12 @@ export class AuthService {
           ip: meta.ip,
         });
         const tokens = await this.tokenService.issuePair(user, meta);
-        return { user: this.toPublicUser(user), tokens };
+        const linkSuggestions = await findNamedPlaceholderSuggestions(
+          this.prisma,
+          input.name,
+          { excludeUserId: user.id },
+        );
+        return { user: this.toPublicUser(user), tokens, linkSuggestions };
       }
       throw new ConflictException('An account with this phone already exists');
     }
@@ -129,7 +142,55 @@ export class AuthService {
     await this.auditService.log({ actorId: user.id, action: 'auth.signup', ip: meta.ip });
 
     const tokens = await this.tokenService.issuePair(user, meta);
-    return { user: this.toPublicUser(user), tokens };
+    const linkSuggestions = await findNamedPlaceholderSuggestions(
+      this.prisma,
+      input.name,
+      { excludeUserId: user.id },
+    );
+    return { user: this.toPublicUser(user), tokens, linkSuggestions };
+  }
+
+  /** Profiles created from WhatsApp name mentions that may belong to this user. */
+  async listNamedLinkSuggestions(userId: string): Promise<NamedProfileLinkSuggestion[]> {
+    const me = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, name: true },
+    });
+    if (!me) throw new UnauthorizedException('Not authenticated');
+    return findNamedPlaceholderSuggestions(this.prisma, me.name, {
+      excludeUserId: me.id,
+    });
+  }
+
+  /**
+   * Merge a named WhatsApp placeholder into the signed-in account.
+   * Keeps RSVP history; WhatsApp LID/phone continue to attach via existing flows.
+   */
+  async claimNamedProfile(
+    userId: string,
+    placeholderUserId: string,
+  ): Promise<{ user: PublicUser; linkedName: string }> {
+    try {
+      const linked = await claimNamedPlaceholder(
+        this.prisma,
+        userId,
+        placeholderUserId,
+      );
+      await this.auditService.log({
+        actorId: userId,
+        action: 'auth.claim_named_profile',
+        targetType: 'USER',
+        targetId: placeholderUserId,
+      });
+      const user = await this.prisma.user.findFirstOrThrow({
+        where: { id: userId },
+      });
+      return { user: this.toPublicUser(user), linkedName: linked.name };
+    } catch (err) {
+      throw new BadRequestException(
+        err instanceof Error ? err.message : 'Could not link that profile',
+      );
+    }
   }
 
   async login(identifier: string, password: string, meta: RequestMeta): Promise<AuthResult> {

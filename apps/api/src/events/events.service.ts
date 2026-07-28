@@ -26,6 +26,7 @@ import { haversineKm } from '../common/utils/geo';
 import { publicUserSelect } from '../users/users.service';
 import { NOTIFY_EVENT, NotifyPayload } from '../notifications/notification.events';
 import { eventToIcs } from './ics.util';
+import { computeSpotsLeft, normalizeCapacity } from '../common/utils/capacity';
 
 const MAX_OCCURRENCES = 26;
 const RECURRENCE_HORIZON_MS = 1000 * 60 * 60 * 24 * 183; // ~6 months
@@ -205,12 +206,14 @@ export class EventsService {
       }),
     ]);
 
+    const capacity = normalizeCapacity(event.capacity);
     return {
       ...event,
+      capacity,
       goingCount,
       interestedCount,
       waitlistCount,
-      spotsLeft: event.capacity !== null ? Math.max(0, event.capacity - goingCount) : null,
+      spotsLeft: computeSpotsLeft(capacity, goingCount),
       viewerRsvp: viewerRsvp ? { status: viewerRsvp.status } : null,
       attendeePreview: attendees.map((a) => a.user),
     };
@@ -374,10 +377,12 @@ export class EventsService {
     lng?: number,
   ) {
     const { _count, ...rest } = event;
+    const capacity = normalizeCapacity(event.capacity);
     return {
       ...rest,
+      capacity,
       goingCount: _count.rsvps,
-      spotsLeft: event.capacity !== null ? Math.max(0, event.capacity - _count.rsvps) : null,
+      spotsLeft: computeSpotsLeft(capacity, _count.rsvps),
       distanceKm:
         lat !== undefined && lng !== undefined && event.latitude !== null && event.longitude !== null
           ? Math.round(haversineKm(lat, lng, event.latitude, event.longitude) * 10) / 10

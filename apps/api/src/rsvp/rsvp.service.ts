@@ -12,6 +12,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { GroupPermissionsService } from '../groups/group-permissions.service';
 import { NOTIFY_EVENT, NotifyPayload } from '../notifications/notification.events';
+import { normalizeCapacity } from '../common/utils/capacity';
 
 export interface RsvpResult {
   rsvp: Rsvp;
@@ -64,11 +65,15 @@ export class RsvpService {
         });
 
         let finalStatus: RsvpStatus = requested;
-        if (requested === RsvpStatus.GOING && event.capacity !== null) {
+        const capacity =
+          typeof event.capacity === 'number' && Number.isFinite(event.capacity)
+            ? event.capacity
+            : null;
+        if (requested === RsvpStatus.GOING && capacity !== null) {
           const goingCount = await tx.rsvp.count({
             where: { eventId, status: RsvpStatus.GOING, userId: { not: userId } },
           });
-          if (goingCount >= event.capacity) {
+          if (goingCount >= capacity) {
             // Schema default is true; treat missing (e.g. older mock rows) as enabled.
             if (event.allowWaitlist === false) {
               throw new BadRequestException('This event is at capacity');
@@ -143,14 +148,15 @@ export class RsvpService {
   /** FIFO promotion of the oldest waitlisted attendee once capacity frees up. */
   private async promoteFromWaitlist(eventId: string): Promise<void> {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
-    if (!event || event.capacity === null) return;
+    if (!event || normalizeCapacity(event.capacity) === null) return;
 
+    const capacity = normalizeCapacity(event.capacity)!;
     const promoted = await this.prisma.$transaction(
       async (tx) => {
         const goingCount = await tx.rsvp.count({
           where: { eventId, status: RsvpStatus.GOING },
         });
-        if (goingCount >= event.capacity!) return null;
+        if (goingCount >= capacity) return null;
 
         const next = await tx.rsvp.findFirst({
           where: { eventId, status: RsvpStatus.WAITLISTED },

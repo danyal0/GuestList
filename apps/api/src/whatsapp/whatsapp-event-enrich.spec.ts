@@ -1,8 +1,15 @@
 import {
+  detectRescheduleCues,
+  extractMapsUrls,
+  extractNamedAttendeesFromMessage,
+  inferEventCapacity,
+  mergeNamedAttendees,
   preferPmForTennisHour,
   resolveCatalogVenue,
   resolveMilwaukeeVenue,
+  scoreRescheduleCandidate,
 } from './whatsapp-event-enrich';
+import { computeSpotsLeft, normalizeCapacity } from '../common/utils/capacity';
 
 describe('resolveCatalogVenue', () => {
   it('maps lake front tennis to McKinley Tennis Courts', () => {
@@ -10,11 +17,20 @@ describe('resolveCatalogVenue', () => {
     expect(match?.venue.name).toBe('McKinley Tennis Courts');
     expect(match?.venue.address).toContain('Lincoln Memorial');
     expect(match?.matchedAlias).toMatch(/lake ?front/);
+    expect(match?.venue.defaultCapacity).toBe(24);
+    expect(match?.venue.courtCount).toBe(6);
   });
 
   it('maps lake park explicitly to Lake Park courts (not McKinley)', () => {
     const match = resolveCatalogVenue('lake park tomorrow');
     expect(match?.venue.slug).toBe('lake-park-tennis-courts');
+  });
+
+  it('maps atwater to Shorewood elementary courts', () => {
+    const match = resolveCatalogVenue('Atwater Elementary tennis 6pm');
+    expect(match?.venue.slug).toBe('atwater-elementary-tennis');
+    expect(match?.venue.address).toContain('Capitol');
+    expect(match?.venue.defaultCapacity).toBe(12);
   });
 
   it('returns null for unknown places', () => {
@@ -29,5 +45,119 @@ describe('preferPmForTennisHour', () => {
 
   it('keeps explicit morning hours', () => {
     expect(preferPmForTennisHour(6, true)).toBe(6);
+  });
+});
+
+describe('inferEventCapacity', () => {
+  it('uses AI capacity when confident', () => {
+    expect(
+      inferEventCapacity({
+        aiCapacity: 4,
+        capacityConfidence: 0.9,
+        venue: resolveCatalogVenue('mckinley')!.venue,
+      }),
+    ).toBe(4);
+  });
+
+  it('uses doubles cue from message', () => {
+    expect(inferEventCapacity({ messageBody: 'doubles tomorrow at lake front' })).toBe(4);
+  });
+
+  it('falls back to venue defaultCapacity', () => {
+    const venue = resolveCatalogVenue('lake front')!.venue;
+    expect(inferEventCapacity({ messageBody: 'tennis at lake front 6', venue })).toBe(24);
+  });
+
+  it('uses Atwater venue capacity for atwater messages', () => {
+    const venue = resolveCatalogVenue('atwater elementary')!.venue;
+    expect(inferEventCapacity({ messageBody: 'Atwater Elementary tennis 6pm', venue })).toBe(12);
+  });
+});
+
+describe('extractNamedAttendeesFromMessage', () => {
+  it('picks up Khatera from "khatera is also going"', () => {
+    expect(
+      extractNamedAttendeesFromMessage(
+        'Atwater Elementary tennis 6pm — khatera is also going',
+      ),
+    ).toEqual(['Khatera']);
+  });
+
+  it('merges AI and local names without duplicates', () => {
+    expect(
+      mergeNamedAttendees(
+        ['Khatera'],
+        'me and Sam are playing; khatera is also going',
+        ['Danyal'],
+      ),
+    ).toEqual(expect.arrayContaining(['Khatera', 'Sam']));
+  });
+});
+
+describe('normalizeCapacity / computeSpotsLeft', () => {
+  it('treats undefined/null as unlimited', () => {
+    expect(normalizeCapacity(undefined)).toBeNull();
+    expect(normalizeCapacity(null)).toBeNull();
+    expect(computeSpotsLeft(undefined, 1)).toBeNull();
+  });
+
+  it('computes remaining spots', () => {
+    expect(computeSpotsLeft(12, 2)).toBe(10);
+    expect(computeSpotsLeft(1, 3)).toBe(0);
+  });
+});
+
+describe('detectRescheduleCues / scoreRescheduleCandidate', () => {
+  const sample =
+    'Khatera and I are going to play tennis at Atwater Elementary School in Shorewood about 6 pm (earlier than planned). Everyone else is welcome too!\nhttps://maps.app.goo.gl/5WAt3wATnqqesNv6A';
+
+  it('flags earlier than planned as a strong reschedule cue', () => {
+    const cue = detectRescheduleCues(sample);
+    expect(cue.matched).toBe(true);
+    expect(cue.direction).toBe('earlier');
+    expect(cue.confidence).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it('extracts Google Maps short links', () => {
+    expect(extractMapsUrls(sample)).toEqual([
+      'https://maps.app.goo.gl/5WAt3wATnqqesNv6A',
+    ]);
+  });
+
+  it('scores the host Atwater event highly for this reschedule message', () => {
+    const venue = resolveCatalogVenue(sample)!.venue;
+    const laterSameDay = new Date('2026-07-28T23:00:00.000Z'); // ~6pm Chicago
+    const earlierPlan = new Date('2026-07-29T01:00:00.000Z'); // ~8pm Chicago
+    const newStart = laterSameDay;
+    const score = scoreRescheduleCandidate(
+      {
+        id: 'evt_1',
+        title: 'Atwater Elementary tennis 6pm',
+        startTime: earlierPlan,
+        endTime: new Date(earlierPlan.getTime() + 90 * 60 * 1000),
+        locationName: venue.name,
+        address: venue.address,
+        venueId: 'venue_atwater',
+        whatsappMessageId: 'wamid_old',
+        description: 'prior invite',
+        capacity: 12,
+      },
+      {
+        venueId: 'venue_atwater',
+        locationName: venue.name,
+        address: venue.address,
+        newStart,
+        messageBody: sample,
+        direction: 'earlier',
+        timezone: 'America/Chicago',
+      },
+    );
+    expect(score).toBeGreaterThanOrEqual(0.7);
+  });
+
+  it('extracts Khatera from Khatera and I', () => {
+    expect(extractNamedAttendeesFromMessage(sample)).toEqual(
+      expect.arrayContaining(['Khatera']),
+    );
   });
 });

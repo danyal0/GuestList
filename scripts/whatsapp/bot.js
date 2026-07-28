@@ -31,8 +31,11 @@ const {
 
 function loadVenuesCatalog() {
   const candidates = [
+    path.resolve(__dirname, '../../apps/api/src/data/venues-catalog.json'),
     path.resolve(__dirname, '../../apps/api/data/venues-catalog.json'),
+    path.resolve(process.cwd(), 'apps/api/src/data/venues-catalog.json'),
     path.resolve(process.cwd(), 'apps/api/data/venues-catalog.json'),
+    path.resolve(process.cwd(), 'src/data/venues-catalog.json'),
     path.resolve(process.cwd(), 'data/venues-catalog.json'),
   ];
   for (const p of candidates) {
@@ -49,10 +52,15 @@ const VENUES_CATALOG = loadVenuesCatalog();
 
 function catalogPromptBlock() {
   if (!VENUES_CATALOG.length) return '(no local catalog loaded)';
-  return VENUES_CATALOG.map(
-    (v) =>
-      `- slug=${v.slug} name="${v.name}" address="${v.address}" aliases=[${(v.aliases || []).join(', ')}] lat=${v.latitude} lng=${v.longitude}`,
-  ).join('\n');
+  return VENUES_CATALOG.map((v) => {
+    const courts =
+      typeof v.courtCount === 'number' ? ` courts=${v.courtCount}` : '';
+    const cap =
+      typeof v.defaultCapacity === 'number'
+        ? ` defaultCapacity=${v.defaultCapacity}`
+        : '';
+    return `- slug=${v.slug} name="${v.name}" address="${v.address}" aliases=[${(v.aliases || []).join(', ')}] lat=${v.latitude} lng=${v.longitude}${courts}${cap}`;
+  }).join('\n');
 }
 
 function resolveCatalogFromClue(clue) {
@@ -136,6 +144,11 @@ if (!XAI_API_KEY) {
  *     skillLevel: string | null,
  *     courtInfo: string | null,
  *     durationMinutes: number | null,
+ *     capacity: number | null,
+ *     capacityConfidence: number | null,
+ *     namedAttendees: string[] | null,
+ *     isReschedule: boolean | null,
+ *     rescheduleConfidence: number | null,
  *     timezone: string | null,
  *     venueConfidence: number | null,
  *     addressConfidence: number | null,
@@ -159,24 +172,40 @@ const SYSTEM_PROMPT = `You are a STRICT extractor for MKE Plays (Milwaukee tenni
 Do NOT invent places, addresses, or instructions that are not supported by the message or the VERIFIED catalog below.
 
 Identify exactly one intent: CREATE_EVENT | RSVP_YES | RSVP_NO | IGNORE.
+CREATE_EVENT also covers reschedules of an existing match (still CREATE_EVENT; set isReschedule + rescheduleConfidence).
 
-VERIFIED Milwaukee tennis venues (ONLY use these for precise address/lat/lng unless the message itself contains a full street address with numbers):
+WORD-LEVEL ANALYSIS (mandatory for CREATE_EVENT):
+Break the message into tokens/phrases and assign each a role when possible:
+- person name (who is going / playing besides the sender) — "Khatera and I" → namedAttendees=["Khatera"]
+- time / day cue ("about 6 pm")
+- place / venue cue ("Atwater Elementary School in Shorewood")
+- reschedule cue ("earlier than planned", "later than planned", "moved to", "new time", "instead of") → isReschedule=true
+- capacity cue (singles=2, doubles=4, "need 3", "4 people", N courts → N×4)
+- skill / format / court info
+- maps links (maps.app.goo.gl / google maps) — keep in notes if useful; do not invent coordinates from them
+Ignore filler (hi, lol, please). Every meaningful word should inform a field or confidence.
+
+VERIFIED Milwaukee tennis venues (ONLY use these for precise address/lat/lng unless the message itself contains a full street address with numbers). Each lists courts + defaultCapacity (courts×4 for open play):
 ${catalogPromptBlock()}
 
 Critical local rules:
 - For TENNIS, casual "lake front" / "lakefront" means McKinley Tennis Courts (slug=mckinley-tennis-courts), NOT Lake Park.
 - "lake park" / Bradford / Kenwood → Lake Park Tennis Courts only when those words appear.
+- "atwater" / Shorewood Atwater → Atwater Elementary School courts (slug=atwater-elementary-tennis).
 - Timezone America/Chicago. Bare hours 1–8 without am/pm → prefer PM for tennis (6 → 6pm). Morning only if explicit.
 - suggestedTime: ISO-8601 with Chicago offset when possible.
+- capacity: prefer explicit party size from the message; else singles/doubles; else venue defaultCapacity from catalog. Set capacityConfidence honestly.
+- namedAttendees: first names of people the message says are going/playing (e.g. "Khatera and I are going" → ["Khatera"]). Do NOT include the sender.
+- isReschedule / rescheduleConfidence: set high when the host is changing a prior plan ("earlier than planned" is a strong clue). The API will update the existing event and notify RSVPs.
 
 Strictness:
-- Set venueConfidence / addressConfidence / timeConfidence from 0–1 honestly.
+- Set venueConfidence / addressConfidence / timeConfidence / capacityConfidence / rescheduleConfidence from 0–1 honestly.
 - If you cannot map to a catalog slug confidently, leave address/lat/lng null and set venueConfidence < 0.7.
 - instructions/notes/skillLevel/courtInfo: ONLY if present or strongly implied in the message. Do NOT invent meetup fluff.
 - title may be a short paraphrase of the ask.
 
 Return ONLY minified JSON:
-{"intent":"CREATE_EVENT"|"RSVP_YES"|"RSVP_NO"|"IGNORE","confidence":0.0,"extractedData":{"title":null,"suggestedTime":null,"venue":null,"locationName":null,"address":null,"latitude":null,"longitude":null,"venueSlug":null,"instructions":null,"notes":null,"skillLevel":null,"courtInfo":null,"durationMinutes":null,"timezone":"America/Chicago","venueConfidence":0.0,"addressConfidence":0.0,"timeConfidence":0.0}}`;
+{"intent":"CREATE_EVENT"|"RSVP_YES"|"RSVP_NO"|"IGNORE","confidence":0.0,"extractedData":{"title":null,"suggestedTime":null,"venue":null,"locationName":null,"address":null,"latitude":null,"longitude":null,"venueSlug":null,"instructions":null,"notes":null,"skillLevel":null,"courtInfo":null,"durationMinutes":null,"capacity":null,"capacityConfidence":0.0,"namedAttendees":[],"isReschedule":false,"rescheduleConfidence":0.0,"timezone":"America/Chicago","venueConfidence":0.0,"addressConfidence":0.0,"timeConfidence":0.0}}`;
 
 const REFINE_VENUE_PROMPT = `You refine ONLY venue/address for a Milwaukee tennis WhatsApp message.
 Use the VERIFIED catalog. For tennis, "lake front"/"lakefront" = McKinley Tennis Courts.
@@ -448,6 +477,11 @@ function parseAnalysisJson(raw) {
         skillLevel: nullableString(extracted.skillLevel),
         courtInfo: nullableString(extracted.courtInfo),
         durationMinutes: nullableNumber(extracted.durationMinutes),
+        capacity: nullableNumber(extracted.capacity),
+        capacityConfidence: nullableNumber(extracted.capacityConfidence),
+        namedAttendees: nullableStringArray(extracted.namedAttendees),
+        isReschedule: Boolean(extracted.isReschedule),
+        rescheduleConfidence: nullableNumber(extracted.rescheduleConfidence),
         timezone: nullableString(extracted.timezone) || 'America/Chicago',
         venueSlug: nullableString(extracted.venueSlug),
         venueConfidence: nullableNumber(extracted.venueConfidence),
@@ -486,6 +520,138 @@ function nullableString(value) {
   return s.length ? s : null;
 }
 
+/** @param {unknown} value @returns {string[]} */
+function nullableStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  for (const item of value) {
+    const s = nullableString(item);
+    if (!s) continue;
+    if (out.some((o) => o.toLowerCase() === s.toLowerCase())) continue;
+    out.push(s);
+  }
+  return out;
+}
+
+/** Local fallback: names said to be going/playing in the message. */
+function extractNamedAttendeesFromText(text) {
+  if (!text || typeof text !== 'string') return [];
+  const stop = new Set([
+    'i',
+    'im',
+    'me',
+    'we',
+    'us',
+    'you',
+    'he',
+    'she',
+    'they',
+    'anyone',
+    'someone',
+    'tomorrow',
+    'today',
+    'tonight',
+    'tennis',
+    'court',
+    'courts',
+    'park',
+    'lake',
+    'front',
+    'doubles',
+    'singles',
+    'lets',
+    'please',
+    'also',
+    'going',
+    'need',
+    'pm',
+    'am',
+    'play',
+    'playing',
+    'elementary',
+    'school',
+    'shorewood',
+    'everyone',
+    'welcome',
+  ]);
+  const found = [];
+  const push = (raw) => {
+    if (!raw) return;
+    const name = String(raw).replace(/[^A-Za-zÀ-ÿ'’-]/g, '').trim();
+    if (name.length < 2 || name.length > 40) return;
+    const key = name.toLowerCase();
+    if (stop.has(key) || found.some((f) => f.toLowerCase() === key)) return;
+    found.push(name.charAt(0).toUpperCase() + name.slice(1));
+  };
+  const patterns = [
+    /\b([A-Za-zÀ-ÿ'’-]{2,40})\s+is\s+(?:also\s+)?(?:going|in|down|coming|joining|playing)\b/gi,
+    /\b(?:also)\s+([A-Za-zÀ-ÿ'’-]{2,40})\s+(?:is\s+)?(?:going|in|down|coming|joining)\b/gi,
+    /\b(?:with|plus|\+)\s+([A-Za-zÀ-ÿ'’-]{2,40})\b/gi,
+    /\bme\s+and\s+([A-Za-zÀ-ÿ'’-]{2,40})\b/gi,
+    /\b([A-Za-zÀ-ÿ'’-]{2,40})\s+and\s+(?:me|i)\b/gi,
+  ];
+  for (const re of patterns) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(text)) !== null) push(m[1]);
+  }
+  return found;
+}
+
+function detectRescheduleCuesLocal(text) {
+  if (!text) return { matched: false, confidence: 0 };
+  const patterns = [
+    /\bearlier\s+than\s+planned\b/i,
+    /\blater\s+than\s+planned\b/i,
+    /\b(?:reschedul(?:e|ed|ing)|time\s+change|changed\s+(?:the\s+)?time)\b/i,
+    /\b(?:pushed|moved|shifted)\s+(?:it\s+)?(?:up|earlier|back|later)\b/i,
+    /\bnew\s+time\b/i,
+    /\bmoving\s+(?:to|it\s+to)\b/i,
+  ];
+  for (const re of patterns) {
+    if (re.test(text)) return { matched: true, confidence: 0.95 };
+  }
+  return { matched: false, confidence: 0 };
+}
+
+/** Infer capacity when AI omits it, using venue catalog defaults. */
+function inferCapacityLocal(extracted, messageText) {
+  if (typeof extracted.capacity === 'number' && extracted.capacity >= 1) {
+    return extracted.capacity;
+  }
+  const text = `${extracted.courtInfo || ''} ${messageText || ''}`.toLowerCase();
+  const explicit =
+    text.match(
+      /\b(?:need|for|max|capacity|spots?(?:\s*(?:for|left|open))?|only)\s+(\d{1,3})\b/,
+    ) ||
+    text.match(/\b(\d{1,3})\s*(?:spots?|players?|people|ppl)\b/);
+  if (explicit?.[1]) {
+    const n = Number(explicit[1]);
+    if (n >= 1 && n <= 1000) return n;
+  }
+  const courts = text.match(/\b(\d{1,2})\s*courts?\b/);
+  if (courts?.[1]) {
+    const n = Number(courts[1]);
+    if (n >= 1 && n <= 40) return n * 4;
+  }
+  if (/\bsingles?\b/.test(text)) return 2;
+  if (/\bdoubles?\b/.test(text)) return 4;
+
+  const clue = [extracted.venueSlug, extracted.locationName, extracted.venue, messageText]
+    .filter(Boolean)
+    .join(' ');
+  const match = resolveCatalogFromClue(clue);
+  if (match?.venue) {
+    if (typeof match.venue.defaultCapacity === 'number') {
+      return match.venue.defaultCapacity;
+    }
+    if (typeof match.venue.courtCount === 'number') {
+      return match.venue.courtCount * 4;
+    }
+  }
+  return null;
+}
+
 /** @param {unknown} value @returns {number | null} */
 function nullableNumber(value) {
   if (value == null || value === '') return null;
@@ -511,6 +677,11 @@ function ignoreResult(confidence) {
       skillLevel: null,
       courtInfo: null,
       durationMinutes: null,
+      capacity: null,
+      capacityConfidence: null,
+      namedAttendees: [],
+      isReschedule: false,
+      rescheduleConfidence: null,
       timezone: 'America/Chicago',
       venueSlug: null,
       venueConfidence: null,
@@ -577,6 +748,24 @@ async function dispatchIntent(payload, analysis) {
 
   if (analysis.intent === 'CREATE_EVENT') {
     const x = analysis.extractedData;
+    const localNames = extractNamedAttendeesFromText(payload.text);
+    const namedAttendees = [
+      ...(Array.isArray(x.namedAttendees) ? x.namedAttendees : []),
+      ...localNames,
+    ].filter((name, idx, arr) => {
+      const key = String(name).toLowerCase();
+      return (
+        key.length >= 2 &&
+        arr.findIndex((n) => String(n).toLowerCase() === key) === idx
+      );
+    });
+    const capacity = inferCapacityLocal(x, payload.text);
+    const localReschedule = detectRescheduleCuesLocal(payload.text);
+    const rescheduleConfidence = Math.max(
+      localReschedule.confidence,
+      typeof x.rescheduleConfidence === 'number' ? x.rescheduleConfidence : 0,
+      x.isReschedule ? 0.85 : 0,
+    );
     const body = {
       senderPhone: payload.senderPhone,
       senderLid: payload.senderLid ?? null,
@@ -600,6 +789,11 @@ async function dispatchIntent(payload, analysis) {
       skillLevel: x.skillLevel,
       courtInfo: x.courtInfo,
       durationMinutes: x.durationMinutes,
+      capacity,
+      capacityConfidence: x.capacityConfidence,
+      namedAttendees,
+      isReschedule: Boolean(x.isReschedule) || localReschedule.matched,
+      rescheduleConfidence,
       timezone: x.timezone || 'America/Chicago',
       confidence: analysis.confidence,
     };
@@ -616,7 +810,7 @@ async function dispatchIntent(payload, analysis) {
       return;
     }
     console.log(
-      `[whatsapp-bot] CREATE_EVENT title=${body.title} slug=${body.venueSlug} addr=${body.address} time=${body.suggestedTime} vConf=${body.venueConfidence} aConf=${body.addressConfidence}`,
+      `[whatsapp-bot] CREATE_EVENT title=${body.title} slug=${body.venueSlug} capacity=${body.capacity} attendees=${JSON.stringify(body.namedAttendees)} reschedule=${body.isReschedule}/${body.rescheduleConfidence} addr=${body.address} time=${body.suggestedTime} vConf=${body.venueConfidence} aConf=${body.addressConfidence}`,
     );
     await postToApp('/api/whatsapp/create-event', body);
     return;

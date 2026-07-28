@@ -41,7 +41,12 @@ function matchCondition(value: unknown, condition: unknown): boolean {
 
   const c = condition as Record<string, unknown>;
 
-  if ('equals' in c) return matchCondition(value, c.equals);
+  if ('equals' in c) {
+    if (c.mode === 'insensitive' && typeof value === 'string' && typeof c.equals === 'string') {
+      return value.toLowerCase() === c.equals.toLowerCase();
+    }
+    return matchCondition(value, c.equals);
+  }
   if ('in' in c && Array.isArray(c.in)) return c.in.some((item) => matchCondition(value, item));
   if ('notIn' in c && Array.isArray(c.notIn)) return !c.notIn.some((item) => matchCondition(value, item));
   if ('not' in c) {
@@ -262,9 +267,11 @@ const RELATION_MAP: Record<string, { model: string; local: string; foreign: stri
   // event
   'event.group': { model: 'group', local: 'groupId', foreign: 'id', many: false },
   'event.host': { model: 'user', local: 'hostId', foreign: 'id', many: false },
+  'event.venue': { model: 'venue', local: 'venueId', foreign: 'id', many: false },
   'event.rsvps': { model: 'rsvp', local: 'id', foreign: 'eventId', many: true },
   'event.parentEvent': { model: 'event', local: 'parentEventId', foreign: 'id', many: false },
   'event.occurrences': { model: 'event', local: 'id', foreign: 'parentEventId', many: true },
+  'venue.events': { model: 'event', local: 'id', foreign: 'venueId', many: true },
   // rsvp
   'rsvp.user': { model: 'user', local: 'userId', foreign: 'id', many: false },
   'rsvp.event': { model: 'event', local: 'eventId', foreign: 'id', many: false },
@@ -540,7 +547,8 @@ function delegate(model: string) {
       if (model === 'conversationParticipant' && !data.joinedAt) data.joinedAt = now;
       if (model === 'notification' && data.read === undefined) data.read = false;
       if (model === 'rsvp' && !data.status) data.status = 'GOING';
-
+      if (model === 'event' && data.capacity === undefined) data.capacity = null;
+      if (model === 'event' && data.allowWaitlist === undefined) data.allowWaitlist = true;
       // Nested creates used by messaging / groups
       const participants = data.participants as { create?: unknown } | undefined;
       delete data.participants;
