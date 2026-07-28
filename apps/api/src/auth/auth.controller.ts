@@ -18,6 +18,7 @@ import { AuthService, AuthResult, PublicUser } from './auth.service';
 import {
   AppleOAuthDto,
   ChangePasswordDto,
+  ClaimNamedProfileDto,
   ForgotPasswordDto,
   GoogleOAuthDto,
   LoginDto,
@@ -31,6 +32,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../common/types/auth-user';
 import { ACCESS_COOKIE } from '../common/guards/jwt-auth.guard';
 import { CSRF_COOKIE } from '../common/guards/csrf.guard';
+import type { NamedProfileLinkSuggestion } from '../whatsapp/whatsapp-identity';
 
 const REFRESH_COOKIE = 'mkeplays_refresh';
 const REFRESH_COOKIE_PATH = '/api/v1/auth';
@@ -40,6 +42,7 @@ interface AuthResponse {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  linkSuggestions?: NamedProfileLinkSuggestion[];
 }
 
 @ApiTags('auth')
@@ -190,6 +193,23 @@ export class AuthController {
     return this.authService.getMe(user.id);
   }
 
+  @Get('link-suggestions')
+  async linkSuggestions(
+    @CurrentUser() user: AuthUser,
+  ): Promise<{ suggestions: NamedProfileLinkSuggestion[] }> {
+    const suggestions = await this.authService.listNamedLinkSuggestions(user.id);
+    return { suggestions };
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('claim-named-profile')
+  async claimNamedProfile(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ClaimNamedProfileDto,
+  ): Promise<{ user: PublicUser; linkedName: string }> {
+    return this.authService.claimNamedProfile(user.id, dto.placeholderUserId);
+  }
+
   private respondWithAuth(res: Response, result: AuthResult): AuthResponse {
     const secure = this.config.get<boolean>('cookies.secure') ?? false;
     const domain = this.config.get<string | undefined>('cookies.domain');
@@ -226,6 +246,9 @@ export class AuthController {
       accessToken: result.tokens.accessToken,
       refreshToken: result.tokens.refreshToken,
       expiresIn: result.tokens.accessExpiresIn,
+      ...(result.linkSuggestions && result.linkSuggestions.length > 0
+        ? { linkSuggestions: result.linkSuggestions }
+        : {}),
     };
   }
 

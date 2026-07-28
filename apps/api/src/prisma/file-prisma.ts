@@ -267,9 +267,11 @@ const RELATION_MAP: Record<string, { model: string; local: string; foreign: stri
   // event
   'event.group': { model: 'group', local: 'groupId', foreign: 'id', many: false },
   'event.host': { model: 'user', local: 'hostId', foreign: 'id', many: false },
+  'event.venue': { model: 'venue', local: 'venueId', foreign: 'id', many: false },
   'event.rsvps': { model: 'rsvp', local: 'id', foreign: 'eventId', many: true },
   'event.parentEvent': { model: 'event', local: 'parentEventId', foreign: 'id', many: false },
   'event.occurrences': { model: 'event', local: 'id', foreign: 'parentEventId', many: true },
+  'venue.events': { model: 'event', local: 'id', foreign: 'venueId', many: true },
   // rsvp
   'rsvp.user': { model: 'user', local: 'userId', foreign: 'id', many: false },
   'rsvp.event': { model: 'event', local: 'eventId', foreign: 'id', many: false },

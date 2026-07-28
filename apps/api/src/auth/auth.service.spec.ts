@@ -44,7 +44,16 @@ function makeUser(overrides: Record<string, unknown> = {}) {
 describe('AuthService', () => {
   let service: AuthService;
   let prisma: {
-    user: { findUnique: jest.Mock; findFirst: jest.Mock; findUniqueOrThrow: jest.Mock; create: jest.Mock; update: jest.Mock };
+    user: {
+      findUnique: jest.Mock;
+      findFirst: jest.Mock;
+      findFirstOrThrow: jest.Mock;
+      findUniqueOrThrow: jest.Mock;
+      findMany: jest.Mock;
+      create: jest.Mock;
+      update: jest.Mock;
+    };
+    rsvp: { findMany: jest.Mock };
     activityLog: { create: jest.Mock };
     emailToken: { updateMany: jest.Mock; create: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
   };
@@ -56,10 +65,13 @@ describe('AuthService', () => {
       user: {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
+        findFirstOrThrow: jest.fn(),
         findUniqueOrThrow: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         create: jest.fn(),
         update: jest.fn(),
       },
+      rsvp: { findMany: jest.fn().mockResolvedValue([]) },
       activityLog: { create: jest.fn().mockResolvedValue({}) },
       emailToken: {
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -93,7 +105,7 @@ describe('AuthService', () => {
 
   describe('signup', () => {
     it('rejects duplicate phones with 409', async () => {
-      prisma.user.findUnique.mockResolvedValue(makeUser());
+      prisma.user.findUnique.mockResolvedValue(makeUser({ passwordHash: 'existing-hash' }));
       await expect(
         service.signup({ name: 'Ada', phone: '14145550100', password: 'Str0ngPassw0rd!' }, {}),
       ).rejects.toThrow(ConflictException);

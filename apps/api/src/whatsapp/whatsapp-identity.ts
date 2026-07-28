@@ -252,8 +252,9 @@ export async function findOrLinkWhatsappUser(
 }
 
 /**
- * Find an active user by display name (exact, then starts-with, then contains).
- * Used to auto-RSVP people named in WhatsApp match invites (e.g. "Khatera is going").
+ * Find an active user by display name for WhatsApp auto-RSVP.
+ * Prefer exact match; only fall back to startsWith for longer names.
+ * Never use loose contains — that can attach RSVPs to the wrong person.
  */
 export async function findUserByDisplayName(
   prisma: PrismaService,
@@ -271,41 +272,291 @@ export async function findUserByDisplayName(
   });
   if (exact) return exact;
 
-  const starts = await prisma.user.findFirst({
+  // "Khatera J." style — only when the query is a clear first token (≥3 chars).
+  if (name.length >= 3 && !/\s/.test(name)) {
+    const starts = await prisma.user.findFirst({
+      where: {
+        deletedAt: null,
+        name: { startsWith: name, mode: 'insensitive' },
+      },
+      select: { id: true, name: true, phone: true, whatsappLid: true },
+    });
+    if (starts) return starts;
+  }
+
+  return null;
+}
+
+export const NAMED_PLACEHOLDER_EMAIL_DOMAIN = '@wa.mkeplays.app';
+
+type PlaceholderRow = {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  whatsappLid: string | null;
+  passwordHash?: string | null;
+};
+
+/** Passwordless WhatsApp-named attendee (no phone/LID yet). */
+export function isNamedPlaceholder(user: {
+  email?: string | null;
+  phone?: string | null;
+  whatsappLid?: string | null;
+  passwordHash?: string | null;
+  deletedAt?: Date | null;
+}): boolean {
+  if (user.deletedAt) return false;
+  if (user.passwordHash) return false;
+  if (user.phone) return false;
+  // LID-only WhatsApp users are real bridge identities — not name placeholders.
+  if (user.whatsappLid) return false;
+  const email = (user.email ?? '').toLowerCase();
+  return (
+    email.endsWith(NAMED_PLACEHOLDER_EMAIL_DOMAIN) && email.startsWith('named-')
+  );
+}
+
+export type NamedProfileClue = {
+  eventId: string;
+  title: string;
+  startTime: Date;
+  venueName: string | null;
+  locationName: string | null;
+  hostName: string | null;
+  /** One-line human clue for the signup UI. */
+  summary: string;
+};
+
+export type NamedProfileLinkSuggestion = {
+  userId: string;
+  name: string;
+  clues: NamedProfileClue[];
+};
+
+function formatClueTime(date: Date): string {
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: 'America/Chicago',
+    }).format(date);
+  } catch {
+    return date.toISOString();
+  }
+}
+
+export function formatNamedProfileClueSummary(parts: {
+  title: string;
+  startTime: Date;
+  venueName?: string | null;
+  locationName?: string | null;
+  hostName?: string | null;
+}): string {
+  const place =
+    parts.venueName?.trim() ||
+    parts.locationName?.trim() ||
+    'a Milwaukee tennis meetup';
+  const when = formatClueTime(parts.startTime);
+  const host = parts.hostName?.trim();
+  if (host) {
+    return `You played “${parts.title}” at ${place} on ${when}, hosted by ${host}`;
+  }
+  return `You played “${parts.title}” at ${place} on ${when}`;
+}
+
+export async function buildNamedProfileClues(
+  prisma: PrismaService,
+  userId: string,
+  limit = 5,
+): Promise<NamedProfileClue[]> {
+  const rsvps = await prisma.rsvp.findMany({
+    where: {
+      userId,
+      status: { in: ['GOING', 'WAITLISTED', 'INTERESTED'] },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: Math.max(limit * 3, 15),
+    include: {
+      event: {
+        select: {
+          id: true,
+          title: true,
+          startTime: true,
+          locationName: true,
+          venue: { select: { name: true } },
+          host: { select: { name: true } },
+        },
+      },
+    },
+  });
+
+  const clues = rsvps.map((r) => {
+    const venueName = r.event.venue?.name ?? null;
+    const locationName = r.event.locationName ?? null;
+    const hostName = r.event.host?.name ?? null;
+    return {
+      eventId: r.event.id,
+      title: r.event.title,
+      startTime: r.event.startTime,
+      venueName,
+      locationName,
+      hostName,
+      summary: formatNamedProfileClueSummary({
+        title: r.event.title,
+        startTime: r.event.startTime,
+        venueName,
+        locationName,
+        hostName,
+      }),
+    };
+  });
+
+  return clues
+    .sort(
+      (a, b) =>
+        new Date(b.startTime).getTime() - new Date(a.startTime).getTime(),
+    )
+    .slice(0, limit);
+}
+
+/**
+ * Find unclaimed named placeholders that match the signup display name
+ * (exact full name, or same first token for "Khatera" vs "Khatera J.").
+ */
+export async function findNamedPlaceholderSuggestions(
+  prisma: PrismaService,
+  rawName: string,
+  opts: { excludeUserId?: string; limit?: number } = {},
+): Promise<NamedProfileLinkSuggestion[]> {
+  const name = rawName.trim();
+  if (name.length < 2) return [];
+  const limit = opts.limit ?? 5;
+  const firstToken = name.split(/\s+/)[0] ?? name;
+
+  const rows = await prisma.user.findMany({
     where: {
       deletedAt: null,
-      name: { startsWith: name, mode: 'insensitive' },
+      passwordHash: null,
+      phone: null,
+      whatsappLid: null,
+      email: { endsWith: NAMED_PLACEHOLDER_EMAIL_DOMAIN },
+      ...(opts.excludeUserId ? { id: { not: opts.excludeUserId } } : {}),
+      OR: [
+        { name: { equals: name, mode: 'insensitive' } },
+        ...(firstToken.length >= 3
+          ? [
+              { name: { equals: firstToken, mode: 'insensitive' as const } },
+              {
+                name: {
+                  startsWith: `${firstToken} `,
+                  mode: 'insensitive' as const,
+                },
+              },
+            ]
+          : []),
+      ],
     },
-    select: { id: true, name: true, phone: true, whatsappLid: true },
-  });
-  if (starts) return starts;
-
-  // Avoid ultra-short contains matches ("an", "al").
-  if (name.length < 3) return null;
-
-  const contains = await prisma.user.findFirst({
-    where: {
-      deletedAt: null,
-      name: { contains: name, mode: 'insensitive' },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      whatsappLid: true,
+      passwordHash: true,
     },
-    select: { id: true, name: true, phone: true, whatsappLid: true },
+    take: 20,
   });
-  return contains;
+
+  const placeholders = rows.filter((u) => isNamedPlaceholder(u as PlaceholderRow));
+  const suggestions: NamedProfileLinkSuggestion[] = [];
+  for (const placeholder of placeholders) {
+    const clues = await buildNamedProfileClues(prisma, placeholder.id);
+    // Only suggest when there is history to reclaim (RSVPs from WhatsApp).
+    if (clues.length === 0) continue;
+    suggestions.push({
+      userId: placeholder.id,
+      name: placeholder.name,
+      clues,
+    });
+    if (suggestions.length >= limit) break;
+  }
+  return suggestions;
+}
+
+/**
+ * Fold a named placeholder into the signed-up account (RSVPs, hosted events).
+ * Survivor keeps password/phone; any future WhatsApp LID still links via existing flows.
+ */
+export async function claimNamedPlaceholder(
+  prisma: PrismaService,
+  survivorId: string,
+  placeholderId: string,
+): Promise<WhatsappUserIdentity> {
+  if (survivorId === placeholderId) {
+    throw new Error('Cannot claim your own profile');
+  }
+
+  const [survivor, placeholder] = await Promise.all([
+    prisma.user.findFirst({
+      where: { id: survivorId, deletedAt: null },
+      select: identitySelect,
+    }),
+    prisma.user.findFirst({
+      where: { id: placeholderId, deletedAt: null },
+      select: identitySelect,
+    }),
+  ]);
+
+  if (!survivor) throw new Error('Account not found');
+  if (!placeholder || !isNamedPlaceholder(placeholder)) {
+    throw new Error('No matching unclaimed profile found');
+  }
+  if (!survivor.passwordHash) {
+    throw new Error('Sign up fully before linking a prior profile');
+  }
+
+  return mergeWhatsappUsers(prisma, survivor, placeholder, {
+    phone: survivor.phone,
+    lid: survivor.whatsappLid,
+    name: survivor.name,
+  });
 }
 
 /**
  * Create a lightweight placeholder account for a named WhatsApp attendee
  * who is not yet on MKE Plays — so "Khatera is going" still shows 2 going.
+ * OK with no phone / LID; signup later can claim this profile by name + clues.
  */
 export async function findOrCreateNamedAttendee(
   prisma: PrismaService,
   rawName: string,
 ): Promise<WhatsappUserIdentity | null> {
-  const existing = await findUserByDisplayName(prisma, rawName);
-  if (existing) return existing;
-
   const name = rawName.trim();
   if (name.length < 2 || name.length > 80) return null;
+
+  // Prefer an existing exact-name placeholder so history stays on one row.
+  const placeholder = await prisma.user.findFirst({
+    where: {
+      deletedAt: null,
+      passwordHash: null,
+      phone: null,
+      whatsappLid: null,
+      email: { endsWith: NAMED_PLACEHOLDER_EMAIL_DOMAIN },
+      name: { equals: name, mode: 'insensitive' },
+    },
+    select: identitySelect,
+  });
+  if (placeholder && isNamedPlaceholder(placeholder)) {
+    return toIdentity(placeholder);
+  }
+
+  const existing = await findUserByDisplayName(prisma, name);
+  if (existing) return existing;
 
   const slug = name
     .toLowerCase()
@@ -318,7 +569,7 @@ export async function findOrCreateNamedAttendee(
       name,
       phone: null,
       whatsappLid: null,
-      email: `named-${slug || 'attendee'}-${Date.now().toString(36)}@wa.mkeplays.app`,
+      email: `named-${slug || 'attendee'}-${Date.now().toString(36)}${NAMED_PLACEHOLDER_EMAIL_DOMAIN}`,
       passwordHash: null,
       deletedAt: null,
       suspendedAt: null,

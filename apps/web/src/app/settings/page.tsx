@@ -15,6 +15,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Avatar } from '@/components/ui/avatar';
+import {
+  NamedProfileLinkCard,
+  type LinkSuggestion,
+} from '@/components/auth/named-profile-link-card';
 
 function TagEditor({
   label,
@@ -85,6 +89,7 @@ export default function SettingsPage() {
   const [skills, setSkills] = React.useState<string[]>([]);
   const [avatarUploading, setAvatarUploading] = React.useState(false);
   const [avatarUrl, setAvatarUrl] = React.useState<string | null>(null);
+  const [linkSuggestions, setLinkSuggestions] = React.useState<LinkSuggestion[]>([]);
   const initialized = React.useRef(false);
 
   React.useEffect(() => {
@@ -94,6 +99,9 @@ export default function SettingsPage() {
       setInterests(user.interests);
       setSkills(user.skills);
       setAvatarUrl(user.avatarUrl);
+      void api<{ suggestions: LinkSuggestion[] }>('/auth/link-suggestions')
+        .then((data) => setLinkSuggestions(data.suggestions ?? []))
+        .catch(() => setLinkSuggestions([]));
     }
   }, [hydrated, user, router]);
 
@@ -217,9 +225,22 @@ export default function SettingsPage() {
         </dl>
         <p className="mt-3 text-[12px] leading-relaxed text-[var(--color-ink-tertiary)]">
           WhatsApp identity is your LID. We create it from group messages even without a phone,
-          then attach your phone when you sign up or when WhatsApp shares it.
+          then attach your phone when you sign up or when WhatsApp shares it. If friends already
+          RSVP’d you by name, you can link that prior profile below.
         </p>
       </section>
+
+      {linkSuggestions.length > 0 ? (
+        <NamedProfileLinkCard
+          suggestions={linkSuggestions}
+          onDismiss={() => setLinkSuggestions([])}
+          onLinked={() => {
+            void api<{ suggestions: LinkSuggestion[] }>('/auth/link-suggestions')
+              .then((data) => setLinkSuggestions(data.suggestions ?? []))
+              .catch(() => setLinkSuggestions([]));
+          }}
+        />
+      ) : null}
 
       {/* Avatar */}
       <section className="flex items-center gap-5">

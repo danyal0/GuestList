@@ -1,4 +1,8 @@
-import { pickSurvivor } from './whatsapp-identity';
+import {
+  formatNamedProfileClueSummary,
+  isNamedPlaceholder,
+  pickSurvivor,
+} from './whatsapp-identity';
 
 describe('pickSurvivor', () => {
   it('prefers the account with a password', () => {
@@ -36,5 +40,59 @@ describe('pickSurvivor', () => {
       passwordHash: null,
     };
     expect(pickSurvivor(a, b).survivor.id).toBe('b');
+  });
+});
+
+describe('isNamedPlaceholder', () => {
+  it('recognizes WhatsApp name-only attendees', () => {
+    expect(
+      isNamedPlaceholder({
+        email: 'named-khatera-abc123@wa.mkeplays.app',
+        phone: null,
+        whatsappLid: null,
+        passwordHash: null,
+      }),
+    ).toBe(true);
+  });
+
+  it('rejects real accounts and LID-only WhatsApp users', () => {
+    expect(
+      isNamedPlaceholder({
+        email: 'named-khatera-abc123@wa.mkeplays.app',
+        phone: '14145550100',
+        whatsappLid: null,
+        passwordHash: null,
+      }),
+    ).toBe(false);
+    expect(
+      isNamedPlaceholder({
+        email: null,
+        phone: null,
+        whatsappLid: '173709952336025',
+        passwordHash: null,
+      }),
+    ).toBe(false);
+    expect(
+      isNamedPlaceholder({
+        email: 'named-khatera-abc123@wa.mkeplays.app',
+        phone: null,
+        whatsappLid: null,
+        passwordHash: 'hash',
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('formatNamedProfileClueSummary', () => {
+  it('includes venue, time, and host', () => {
+    const summary = formatNamedProfileClueSummary({
+      title: 'Atwater Elementary tennis 6pm',
+      startTime: new Date('2026-07-28T23:00:00.000Z'),
+      venueName: 'Atwater Elementary School',
+      hostName: 'Danyal',
+    });
+    expect(summary).toContain('Atwater Elementary School');
+    expect(summary).toContain('Danyal');
+    expect(summary).toContain('Atwater Elementary tennis 6pm');
   });
 });
