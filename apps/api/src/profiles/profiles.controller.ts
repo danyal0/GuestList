@@ -1,6 +1,16 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { ProfilesService, ProfileView } from './profiles.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { OptionalAuth } from '../common/decorators/public.decorator';
@@ -10,6 +20,12 @@ class FriendRequestDto {
   @IsString()
   @IsNotEmpty()
   userId!: string;
+}
+
+class ProfileEventsQuery {
+  @IsOptional()
+  @IsIn(['attended', 'hosted'])
+  kind?: 'attended' | 'hosted';
 }
 
 @ApiTags('profiles')
@@ -30,6 +46,11 @@ export class ProfilesController {
   @Get('me/friend-requests')
   async myFriendRequests(@CurrentUser() user: AuthUser) {
     return this.profilesService.getPendingRequests(user.id);
+  }
+
+  @Get('me/blocks')
+  async myBlocks(@CurrentUser() user: AuthUser) {
+    return this.profilesService.listBlockedUsers(user.id);
   }
 
   @Post('follows/:groupId')
@@ -64,6 +85,50 @@ export class ProfilesController {
   async declineFriendRequest(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     await this.profilesService.respondToFriendRequest(user.id, id, false);
     return { success: true };
+  }
+
+  @Delete('friends/:userId')
+  @HttpCode(HttpStatus.OK)
+  async removeFriend(@CurrentUser() user: AuthUser, @Param('userId') userId: string) {
+    await this.profilesService.removeFriend(user.id, userId);
+    return { success: true };
+  }
+
+  @Post('blocks/:userId')
+  @HttpCode(HttpStatus.CREATED)
+  async blockUser(@CurrentUser() user: AuthUser, @Param('userId') userId: string) {
+    await this.profilesService.blockUser(user.id, userId);
+    return { success: true };
+  }
+
+  @Delete('blocks/:userId')
+  @HttpCode(HttpStatus.OK)
+  async unblockUser(@CurrentUser() user: AuthUser, @Param('userId') userId: string) {
+    await this.profilesService.unblockUser(user.id, userId);
+    return { success: true };
+  }
+
+  @OptionalAuth()
+  @Get(':id/communities')
+  async profileCommunities(@Param('id') id: string, @CurrentUser() viewer?: AuthUser) {
+    return this.profilesService.listProfileCommunities(id, viewer?.id);
+  }
+
+  @OptionalAuth()
+  @Get(':id/events')
+  async profileEvents(
+    @Param('id') id: string,
+    @Query() query: ProfileEventsQuery,
+    @CurrentUser() viewer?: AuthUser,
+  ) {
+    const kind = query.kind === 'hosted' ? 'hosted' : 'attended';
+    return this.profilesService.listProfileEvents(id, kind, viewer?.id);
+  }
+
+  @OptionalAuth()
+  @Get(':id/friends')
+  async profileFriends(@Param('id') id: string, @CurrentUser() viewer?: AuthUser) {
+    return this.profilesService.listProfileFriends(id, viewer?.id);
   }
 
   @OptionalAuth()

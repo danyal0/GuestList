@@ -3,11 +3,11 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, MapPin, MessageCircle, Settings, UserPlus, Users } from 'lucide-react';
+import { CalendarDays, MapPin, MessageCircle, Settings, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { ProfileView } from '@/lib/types';
-import { formatDate } from '@/lib/utils';
+import { cn, formatDate } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth-store';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -91,6 +91,29 @@ export default function ProfilePage() {
     day: undefined,
   });
 
+  const statLinks = [
+    {
+      label: 'Communities',
+      value: stats.groupsJoined,
+      href: `/profile/${id}/communities`,
+    },
+    {
+      label: 'Events attended',
+      value: stats.eventsAttended,
+      href: `/profile/${id}/events?kind=attended`,
+    },
+    {
+      label: 'Events hosted',
+      value: stats.eventsHosted,
+      href: `/profile/${id}/events?kind=hosted`,
+    },
+    {
+      label: 'Friends',
+      value: stats.friends,
+      href: `/profile/${id}/friends`,
+    },
+  ];
+
   return (
     <div className="mx-auto max-w-2xl space-y-8">
       {/* Header — Apple Contacts feel */}
@@ -166,35 +189,35 @@ export default function ProfilePage() {
 
       {/* Stats */}
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {[
-          { label: 'Communities', value: stats.groupsJoined, icon: Users },
-          { label: 'Events attended', value: stats.eventsAttended, icon: CalendarDays },
-          { label: 'Events hosted', value: stats.eventsHosted, icon: CalendarDays },
-          { label: 'Friends', value: stats.friends, icon: UserPlus },
-        ].map(({ label, value }) => (
-          <div
+        {statLinks.map(({ label, value, href }) => (
+          <Link
             key={label}
-            className="rounded-[var(--radius-lg)] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-4 text-center"
+            href={href}
+            className={cn(
+              'rounded-[var(--radius-lg)] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-4 text-center transition-colors',
+              'hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)]/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]',
+            )}
           >
             <dd className="text-[24px] font-extrabold tracking-tight">{value}</dd>
             <dt className="text-[12px] font-semibold uppercase tracking-wide text-[var(--color-ink-tertiary)]">
               {label}
             </dt>
-          </div>
+          </Link>
         ))}
       </dl>
 
-      {/* Interests + skills */}
       {(interests.length > 0 || skills.length > 0) && (
-        <div className="space-y-5">
+        <div className="space-y-4">
           {interests.length > 0 && (
             <section>
               <h2 className="mb-2 text-[15px] font-bold uppercase tracking-wide text-[var(--color-ink-tertiary)]">
                 Interests
               </h2>
               <div className="flex flex-wrap gap-2">
-                {interests.map((interest) => (
-                  <Badge key={interest}>{interest}</Badge>
+                {interests.map((tag) => (
+                  <Badge key={tag} variant="neutral">
+                    {tag}
+                  </Badge>
                 ))}
               </div>
             </section>
@@ -205,9 +228,9 @@ export default function ProfilePage() {
                 Skills
               </h2>
               <div className="flex flex-wrap gap-2">
-                {skills.map((skill) => (
-                  <Badge key={skill} variant="neutral">
-                    {skill}
+                {skills.map((tag) => (
+                  <Badge key={tag} variant="neutral">
+                    {tag}
                   </Badge>
                 ))}
               </div>

@@ -162,6 +162,7 @@ const UNIQUE_FIELDS: Record<string, string[][]> = {
   rsvp: [['id'], ['eventId', 'userId']],
   conversationParticipant: [['id'], ['conversationId', 'userId']],
   friendship: [['id'], ['requesterId', 'addresseeId']],
+  userBlock: [['id'], ['blockerId', 'blockedId']],
   refreshToken: [['id'], ['tokenHash']],
   emailToken: [['id'], ['tokenHash']],
   event: [['id'], ['whatsappMessageId']],
@@ -304,6 +305,9 @@ const RELATION_MAP: Record<string, { model: string; local: string; foreign: stri
   // friendship
   'friendship.requester': { model: 'user', local: 'requesterId', foreign: 'id', many: false },
   'friendship.addressee': { model: 'user', local: 'addresseeId', foreign: 'id', many: false },
+  // userBlock
+  'userBlock.blocker': { model: 'user', local: 'blockerId', foreign: 'id', many: false },
+  'userBlock.blocked': { model: 'user', local: 'blockedId', foreign: 'id', many: false },
   // refreshToken
   'refreshToken.user': { model: 'user', local: 'userId', foreign: 'id', many: false },
   // notification
@@ -735,6 +739,7 @@ export function createFilePrismaClient() {
     'conversationParticipant',
     'message',
     'friendship',
+    'userBlock',
     'notification',
     'report',
     'auditLog',

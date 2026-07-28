@@ -181,7 +181,7 @@
       "id": "group_mke_tennis",
       "slug": "mke-tennis-group",
       "name": "MKE Tennis Group",
-      "description": "Pickup tennis matches around Milwaukee — courts, times, and RSVPs synced from our WhatsApp group. All levels welcome.",
+      "description": "Pickup tennis matches around Milwaukee \u2014 courts, times, and RSVPs synced from our WhatsApp group. All levels welcome.",
       "category": "SPORTS",
       "privacy": "PUBLIC",
       "location": "Milwaukee, WI",
@@ -200,7 +200,7 @@
       "id": "group_trails",
       "slug": "bay-area-trail-collective",
       "name": "Bay Area Trail Collective",
-      "description": "Weekly hikes across the Bay Area — from casual Golden Gate strolls to full-day Marin Headlands treks. All paces welcome; we never leave anyone behind.",
+      "description": "Weekly hikes across the Bay Area \u2014 from casual Golden Gate strolls to full-day Marin Headlands treks. All paces welcome; we never leave anyone behind.",
       "category": "OUTDOORS",
       "privacy": "PUBLIC",
       "location": "San Francisco, CA",
@@ -256,7 +256,7 @@
     {
       "id": "group_futbol",
       "slug": "east-bay-futbol-club",
-      "name": "East Bay Fútbol Club",
+      "name": "East Bay F\u00fatbol Club",
       "description": "Pick-up soccer every Saturday morning at Bushrod Park. Co-ed, friendly, competitive-ish. First game is free, then we split field costs.",
       "category": "SPORTS",
       "privacy": "PUBLIC",
@@ -496,7 +496,7 @@
       "groupId": "group_trails",
       "hostId": "user_maya",
       "title": "Lands End Sunrise Hike",
-      "description": "A 5-mile coastal loop with the best sunrise view in the city. Meet at the Lands End Lookout parking lot. Bring layers — it gets windy.",
+      "description": "A 5-mile coastal loop with the best sunrise view in the city. Meet at the Lands End Lookout parking lot. Bring layers \u2014 it gets windy.",
       "coverImage": null,
       "mode": "IN_PERSON",
       "status": "PUBLISHED",
@@ -894,7 +894,7 @@
       "id": "msg_2",
       "conversationId": "conv_maya_leo",
       "senderId": "user_leo",
-      "content": "Absolutely — bringing the film camera this time. You in?",
+      "content": "Absolutely \u2014 bringing the film camera this time. You in?",
       "createdAt": "2026-07-21T05:04:16.594Z",
       "deletedAt": null,
       "updatedAt": "2026-07-21T05:04:16.594Z"
@@ -921,7 +921,7 @@
       "id": "msg_5",
       "conversationId": "conv_trails",
       "senderId": "user_maya",
-      "content": "Sunrise hike this Saturday — carpool sign-up is open!",
+      "content": "Sunrise hike this Saturday \u2014 carpool sign-up is open!",
       "createdAt": "2026-07-25T04:04:16.594Z",
       "deletedAt": null,
       "updatedAt": "2026-07-25T04:04:16.594Z"
@@ -1001,5 +1001,6 @@
       "createdAt": "2026-06-21T04:04:16.594Z"
     }
   ],
-  "venues": []
+  "venues": [],
+  "userBlocks": []
 }
