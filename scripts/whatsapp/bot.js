@@ -603,10 +603,17 @@ client.on('ready', async () => {
   console.log(
     `[whatsapp-bot] Ready. Listening for messages in group "${WHATSAPP_GROUP_NAME}".`,
   );
+  if (targetGroupId) {
+    console.log(`[whatsapp-bot] Using WHATSAPP_GROUP_ID=${targetGroupId}`);
+    return;
+  }
   try {
     await resolveTargetGroupId();
   } catch (err) {
-    console.error('[whatsapp-bot] Failed to resolve target group on ready:', err);
+    console.warn(
+      '[whatsapp-bot] Startup group resolve failed (will auto-learn from first group message):',
+      err?.message || err,
+    );
   }
 });
 
@@ -620,19 +627,10 @@ client.on('message', async (message) => {
     if (message.from === 'status@broadcast') return;
     if (message.fromMe && process.env.WHATSAPP_PROCESS_SELF !== 'true') return;
 
-    // Groups only — message.from is the group JID (…@g.us).
+    // Groups only — message.from is the group JID (…@g.us). No Store/getChats needed.
     if (!String(message.from || '').endsWith('@g.us')) return;
 
-    if (!targetGroupId) {
-      try {
-        await resolveTargetGroupId();
-      } catch (err) {
-        console.warn(
-          '[whatsapp-bot] Could not resolve group id:',
-          err.message || err,
-        );
-      }
-    }
+    // Learn FIRST from the message itself — never block on flaky Puppeteer Store APIs.
     if (!targetGroupId) {
       maybeLearnGroupId(message.from);
     }
