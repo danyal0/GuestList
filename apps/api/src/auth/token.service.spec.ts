@@ -6,7 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { hashToken } from '../common/utils/tokens';
 import { TokenService } from './token.service';
 
-const user = { id: 'usr_1', email: 'a@b.co', role: 'USER' as const };
+const user = { id: 'usr_1', email: 'a@b.co', phone: '14145550100', role: 'USER' as const };
 
 describe('TokenService', () => {
   let service: TokenService;

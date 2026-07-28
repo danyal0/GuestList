@@ -101,10 +101,11 @@ npm run whatsapp:bot   # scan QR on first run
 | `XAI_API_KEY` | bot | Grok classification |
 | `XAI_API_URL` | bot | Defaults to `https://api.x.ai/v1/chat/completions` |
 | `XAI_MODEL` | bot | Defaults to `grok-4-1-fast-non-reasoning-latest` |
-| `WHATSAPP_GROUP_NAME` | bot | Group to monitor (default `Tennis Group`) |
+| `WHATSAPP_GROUP_NAME` | bot | Group to monitor (default `Tennis Group`); name fallback for events |
 | `APP_BASE_URL` | bot | Next.js origin for `/api/whatsapp/*` |
 | `DATABASE_URL` | web | Prisma for create-event / rsvp routes |
-| `WHATSAPP_DEFAULT_GROUP_ID` | web | Community that owns WhatsApp-created events |
+| `WHATSAPP_DEFAULT_GROUP_ID` | web | Preferred community cuid (optional; falls back by name/slug/SPORTS) |
+| `WHATSAPP_DEFAULT_GROUP_SLUG` / `_NAME` | web | Fallbacks when id unset |
 
 ## Documentation
 

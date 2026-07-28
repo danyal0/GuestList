@@ -14,18 +14,26 @@ const prisma = new PrismaClient();
 const PASSWORD = 'Passw0rd!';
 
 const USERS = [
-  { email: 'admin@mkeplays.app', name: 'Avery Admin', role: UserRole.ADMIN, location: 'San Francisco, CA', latitude: 37.7749, longitude: -122.4194, interests: ['technology', 'community'], skills: ['moderation'] },
-  { email: 'maya@example.com', name: 'Maya Chen', role: UserRole.USER, location: 'San Francisco, CA', latitude: 37.7793, longitude: -122.4192, interests: ['photography', 'hiking', 'technology'], skills: ['photo editing', 'javascript'] },
-  { email: 'diego@example.com', name: 'Diego Ramirez', role: UserRole.USER, location: 'Oakland, CA', latitude: 37.8044, longitude: -122.2712, interests: ['soccer', 'cooking', 'music'], skills: ['guitar', 'spanish'] },
-  { email: 'priya@example.com', name: 'Priya Sharma', role: UserRole.USER, location: 'San Jose, CA', latitude: 37.3382, longitude: -121.8863, interests: ['machine learning', 'books', 'yoga'], skills: ['python', 'public speaking'] },
-  { email: 'sam@example.com', name: 'Sam Okafor', role: UserRole.USER, location: 'Berkeley, CA', latitude: 37.8715, longitude: -122.273, interests: ['climbing', 'board games', 'technology'], skills: ['route setting', 'rust'] },
-  { email: 'leo@example.com', name: 'Leo Fischer', role: UserRole.USER, location: 'San Francisco, CA', latitude: 37.7599, longitude: -122.4148, interests: ['film', 'photography', 'coffee'], skills: ['color grading', 'german'] },
+  { email: 'admin@mkeplays.app', phone: '14145550001', name: 'Avery Admin', role: UserRole.ADMIN, location: 'Milwaukee, WI', latitude: 43.0389, longitude: -87.9065, interests: ['technology', 'community'], skills: ['moderation'] },
+  { email: 'maya@example.com', phone: '14145550002', name: 'Maya Chen', role: UserRole.USER, location: 'Milwaukee, WI', latitude: 43.0481, longitude: -87.9073, interests: ['photography', 'hiking', 'technology'], skills: ['photo editing', 'javascript'] },
+  { email: 'diego@example.com', phone: '14145550003', name: 'Diego Ramirez', role: UserRole.USER, location: 'Wauwatosa, WI', latitude: 43.0495, longitude: -88.0076, interests: ['soccer', 'cooking', 'music'], skills: ['guitar', 'spanish'] },
+  { email: 'priya@example.com', phone: '14145550004', name: 'Priya Sharma', role: UserRole.USER, location: 'Shorewood, WI', latitude: 43.0892, longitude: -87.8873, interests: ['machine learning', 'books', 'yoga'], skills: ['python', 'public speaking'] },
+  { email: 'sam@example.com', phone: '14145550005', name: 'Sam Okafor', role: UserRole.USER, location: 'Bay View, WI', latitude: 43.0022, longitude: -87.8965, interests: ['climbing', 'board games', 'technology'], skills: ['route setting', 'rust'] },
+  { email: 'leo@example.com', phone: '14145550006', name: 'Leo Fischer', role: UserRole.USER, location: 'Milwaukee, WI', latitude: 43.0389, longitude: -87.9065, interests: ['film', 'photography', 'coffee'], skills: ['color grading', 'german'] },
 ];
 
 const GROUPS: Array<{
   name: string; description: string; category: GroupCategory; privacy: GroupPrivacy;
   location: string; latitude: number; longitude: number; ownerEmail: string; rules?: string; coverImage?: string;
 }> = [
+  {
+    name: 'MKE Tennis Group',
+    description: 'Pickup tennis matches around Milwaukee — courts, times, and RSVPs synced from our WhatsApp group. All levels welcome.',
+    category: GroupCategory.SPORTS, privacy: GroupPrivacy.PUBLIC,
+    location: 'Milwaukee, WI', latitude: 43.0389, longitude: -87.9065,
+    ownerEmail: 'diego@example.com',
+    rules: '1. RSVP honestly.\n2. Bring a can of balls when you can.\n3. Be kind on and off the court.',
+  },
   {
     name: 'Bay Area Trail Collective',
     description: 'Weekly hikes across the Bay Area — from casual Golden Gate strolls to full-day Marin Headlands treks. All paces welcome; we never leave anyone behind.',
@@ -312,7 +320,7 @@ async function main(): Promise<void> {
   });
 
   console.log('Seed complete.');
-  console.log(`Login with any seeded account, e.g. maya@example.com / ${PASSWORD}`);
+  console.log(`Login with phone e.g. 14145550002 / ${PASSWORD} (or maya@example.com)`);
 }
 
 main()

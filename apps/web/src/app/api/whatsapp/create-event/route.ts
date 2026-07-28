@@ -4,13 +4,17 @@ import {
   isValidWhatsappBotToken,
   normalizePhone,
 } from '@/lib/whatsapp-bot-auth';
+import { resolveWhatsappDefaultGroup } from '@/lib/whatsapp-default-group';
+import { findOrLinkWhatsappUser } from '@/lib/whatsapp-user-lookup';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type CreateEventBody = {
   senderPhone?: string;
+  senderLid?: string | null;
   senderJid?: string | null;
+  senderName?: string | null;
   messageBody?: string;
   whatsappMessageId?: string;
   title?: string | null;
@@ -34,27 +38,21 @@ export async function POST(request: NextRequest) {
 
     const body = (await request.json()) as CreateEventBody;
     const senderPhone = normalizePhone(body.senderPhone ?? '');
+    const senderLid = normalizePhone(body.senderLid ?? '');
     const messageBody = (body.messageBody ?? '').trim();
     const whatsappMessageId = String(body.whatsappMessageId ?? '').trim();
 
-    if (!senderPhone || !whatsappMessageId) {
+    if ((!senderPhone && !senderLid) || !whatsappMessageId) {
       return NextResponse.json(
         {
-          error: 'senderPhone and whatsappMessageId are required',
+          error: 'whatsappMessageId and senderPhone or senderLid are required',
           missing: {
             senderPhone: !senderPhone,
+            senderLid: !senderLid,
             whatsappMessageId: !whatsappMessageId,
           },
         },
         { status: 400 },
-      );
-    }
-
-    const defaultGroupId = process.env.WHATSAPP_DEFAULT_GROUP_ID;
-    if (!defaultGroupId) {
-      return NextResponse.json(
-        { error: 'WHATSAPP_DEFAULT_GROUP_ID is not configured' },
-        { status: 500 },
       );
     }
 
@@ -71,16 +69,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    let host = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { phone: senderPhone },
-          // Allow stored values that still include a leading "+" / formatting.
-          { phone: { endsWith: senderPhone } },
-        ],
-        deletedAt: null,
-      },
-      select: { id: true, name: true, phone: true },
+    let host = await findOrLinkWhatsappUser(prisma, {
+      senderPhone: senderPhone || null,
+      senderLid: senderLid || null,
+      senderJid: body.senderJid,
+      senderName: body.senderName,
     });
 
     if (!host && process.env.WHATSAPP_DEFAULT_HOST_USER_ID) {
@@ -89,11 +82,11 @@ export async function POST(request: NextRequest) {
           id: process.env.WHATSAPP_DEFAULT_HOST_USER_ID,
           deletedAt: null,
         },
-        select: { id: true, name: true, phone: true },
+        select: { id: true, name: true, phone: true, whatsappLid: true },
       });
       if (host) {
         console.warn(
-          `[api/whatsapp/create-event] No user for phone=${senderPhone}; using WHATSAPP_DEFAULT_HOST_USER_ID=${host.id}`,
+          `[api/whatsapp/create-event] No user for lid/phone; using WHATSAPP_DEFAULT_HOST_USER_ID=${host.id}`,
         );
       }
     }
@@ -101,24 +94,32 @@ export async function POST(request: NextRequest) {
     if (!host) {
       return NextResponse.json(
         {
-          error: 'No user found for senderPhone',
-          senderPhone,
+          error: 'No user found for WhatsApp sender',
+          senderPhone: senderPhone || null,
+          senderLid: senderLid || null,
           senderJid: body.senderJid ?? null,
+          senderName: body.senderName ?? null,
           hint:
-            'Set User.phone to this senderPhone value (WhatsApp may send a @lid id, not a real phone). Or set WHATSAPP_DEFAULT_HOST_USER_ID as a fallback host.',
+            'Sign up with your phone on MKE Plays, then message the group again so we can link your WhatsApp LID. Or set WHATSAPP_DEFAULT_HOST_USER_ID.',
         },
         { status: 404 },
       );
     }
 
-    const group = await prisma.group.findFirst({
-      where: { id: defaultGroupId, deletedAt: null },
-      select: { id: true, name: true },
-    });
+    const { group, via: groupVia } = await resolveWhatsappDefaultGroup(prisma);
     if (!group) {
       return NextResponse.json(
-        { error: 'WHATSAPP_DEFAULT_GROUP_ID does not match an existing group' },
+        {
+          error: 'No MKE Plays group available for WhatsApp events',
+          hint:
+            'Create a tennis/sports community, or set WHATSAPP_DEFAULT_GROUP_ID (cuid), WHATSAPP_DEFAULT_GROUP_SLUG, or WHATSAPP_DEFAULT_GROUP_NAME.',
+        },
         { status: 500 },
+      );
+    }
+    if (groupVia !== 'WHATSAPP_DEFAULT_GROUP_ID') {
+      console.warn(
+        `[api/whatsapp/create-event] Using group "${group.name}" (${group.id}) via ${groupVia}. Set WHATSAPP_DEFAULT_GROUP_ID to pin it.`,
       );
     }
 

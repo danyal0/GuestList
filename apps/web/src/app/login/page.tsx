@@ -23,7 +23,10 @@ function LoginForm() {
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    const values = { email: String(form.get('email')), password: String(form.get('password')) };
+    const values = {
+      identifier: String(form.get('identifier')),
+      password: String(form.get('password')),
+    };
 
     const parsed = loginSchema.safeParse(values);
     if (!parsed.success) {
@@ -54,16 +57,20 @@ function LoginForm() {
   return (
     <form onSubmit={onSubmit} noValidate className="space-y-4">
       <div>
-        <Label htmlFor="email">Email</Label>
+        <Label htmlFor="identifier">Phone</Label>
         <Input
-          id="email"
-          name="email"
-          type="email"
-          autoComplete="email"
-          placeholder="you@example.com"
-          error={errors.email}
+          id="identifier"
+          name="identifier"
+          type="tel"
+          autoComplete="tel"
+          inputMode="tel"
+          placeholder="+1 414 555 0100"
+          error={errors.identifier}
           required
         />
+        <p className="mt-1.5 text-[12px] text-[var(--color-ink-tertiary)]">
+          Email still works for older accounts.
+        </p>
       </div>
       <div>
         <div className="flex items-baseline justify-between">
@@ -100,7 +107,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <AuthCard title="Welcome back" subtitle="Sign in to pick up where you left off.">
+    <AuthCard title="Welcome back" subtitle="Sign in with your phone to pick up where you left off.">
       <React.Suspense>
         <LoginForm />
       </React.Suspense>

@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ActivityType, Prisma, User } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { UpdateUserDto } from './dto/user.dto';
 import { Paginated, paginate } from '../common/dto/pagination.dto';
+import { isPlausiblePhone, normalizePhoneDigits } from '../common/utils/phone';
 
 /** Fields safe to expose on any user object returned to other users. */
 export const publicUserSelect = {
@@ -36,6 +37,19 @@ export class UsersService {
   }
 
   async updateMe(userId: string, dto: UpdateUserDto): Promise<User> {
+    let phone: string | undefined;
+    if (dto.phone !== undefined) {
+      const normalized = normalizePhoneDigits(dto.phone);
+      if (!normalized || !isPlausiblePhone(normalized)) {
+        throw new BadRequestException('Enter a valid phone number');
+      }
+      const taken = await this.prisma.user.findFirst({
+        where: { phone: normalized, NOT: { id: userId } },
+      });
+      if (taken) throw new ConflictException('That phone number is already in use');
+      phone = normalized;
+    }
+
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: {
@@ -47,6 +61,7 @@ export class UsersService {
         avatarUrl: dto.avatarUrl,
         interests: dto.interests,
         skills: dto.skills,
+        ...(phone !== undefined ? { phone } : {}),
       },
     });
     await this.prisma.activityLog.create({
@@ -69,6 +84,8 @@ export class UsersService {
           location: null,
           latitude: null,
           longitude: null,
+          phone: null,
+          whatsappLid: null,
           passwordHash: null,
           googleId: null,
           appleId: null,

@@ -4,6 +4,7 @@ import {
   isValidWhatsappBotToken,
   normalizePhone,
 } from '@/lib/whatsapp-bot-auth';
+import { findOrLinkWhatsappUser } from '@/lib/whatsapp-user-lookup';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,8 @@ export const dynamic = 'force-dynamic';
 type RsvpBody = {
   whatsappMessageId?: string;
   reactorPhone?: string;
+  reactorLid?: string | null;
+  reactorJid?: string | null;
   status?: 'attending' | 'cancelled' | string;
   confidence?: number;
 };
@@ -31,11 +34,12 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as RsvpBody;
     const whatsappMessageId = (body.whatsappMessageId ?? '').trim();
     const reactorPhone = normalizePhone(body.reactorPhone ?? '');
+    const reactorLid = normalizePhone(body.reactorLid ?? '');
     const status = body.status;
 
-    if (!whatsappMessageId || !reactorPhone) {
+    if (!whatsappMessageId || (!reactorPhone && !reactorLid)) {
       return NextResponse.json(
-        { error: 'whatsappMessageId and reactorPhone are required' },
+        { error: 'whatsappMessageId and reactorPhone or reactorLid are required' },
         { status: 400 },
       );
     }
@@ -77,23 +81,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const user = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { phone: reactorPhone },
-          { phone: { endsWith: reactorPhone } },
-        ],
-        deletedAt: null,
-      },
-      select: { id: true, name: true, phone: true },
+    const user = await findOrLinkWhatsappUser(prisma, {
+      senderPhone: reactorPhone || null,
+      senderLid: reactorLid || null,
+      senderJid: body.reactorJid,
     });
 
     if (!user) {
       return NextResponse.json(
         {
-          error: 'No user found for reactorPhone',
-          reactorPhone,
-          hint: 'Set User.phone (digits or E.164) for WhatsApp participants.',
+          error: 'No user found for WhatsApp reactor',
+          reactorPhone: reactorPhone || null,
+          reactorLid: reactorLid || null,
+          hint: 'Sign up with your phone on MKE Plays so we can link your WhatsApp identity.',
         },
         { status: 404 },
       );

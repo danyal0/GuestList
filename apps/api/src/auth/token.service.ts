@@ -35,7 +35,10 @@ export class TokenService {
     private readonly config: ConfigService,
   ) {}
 
-  async issuePair(user: Pick<User, 'id' | 'email' | 'role'>, meta: RequestMeta = {}): Promise<TokenPair> {
+  async issuePair(
+    user: Pick<User, 'id' | 'email' | 'phone' | 'role'>,
+    meta: RequestMeta = {},
+  ): Promise<TokenPair> {
     return this.createPair(user, randomUUID(), meta);
   }
 
@@ -94,7 +97,7 @@ export class TokenService {
   }
 
   private async createPair(
-    user: Pick<User, 'id' | 'email' | 'role'>,
+    user: Pick<User, 'id' | 'email' | 'phone' | 'role'>,
     family: string,
     meta: RequestMeta,
   ): Promise<TokenPair> {
@@ -103,7 +106,7 @@ export class TokenService {
 
     const payload: AccessTokenPayload = {
       sub: user.id,
-      email: user.email,
+      email: user.email ?? user.phone ?? '',
       role: user.role,
       type: 'access',
     };

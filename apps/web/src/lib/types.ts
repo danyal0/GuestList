@@ -2,7 +2,10 @@
 
 export interface User {
   id: string;
-  email: string;
+  email: string | null;
+  phone: string | null;
+  whatsappLid: string | null;
+  whatsappLinked: boolean;
   name: string;
   avatarUrl: string | null;
   bio: string | null;

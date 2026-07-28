@@ -87,7 +87,9 @@ if (!XAI_API_KEY) {
  *   text: string | null,
  *   reaction: string | null,
  *   senderPhone: string,
+ *   senderLid?: string | null,
  *   senderJid?: string | null,
+ *   senderName?: string | null,
  *   whatsappMessageId: string,
  *   targetMessageId: string | null,
  * }} AnalyzePayload
@@ -304,7 +306,9 @@ async function dispatchIntent(payload, analysis) {
   if (analysis.intent === 'CREATE_EVENT') {
     const body = {
       senderPhone: payload.senderPhone,
+      senderLid: payload.senderLid ?? null,
       senderJid: payload.senderJid ?? null,
+      senderName: payload.senderName ?? null,
       messageBody: payload.text ?? '',
       whatsappMessageId: payload.whatsappMessageId,
       title: analysis.extractedData.title,
@@ -312,11 +316,12 @@ async function dispatchIntent(payload, analysis) {
       venue: analysis.extractedData.venue,
       confidence: analysis.confidence,
     };
-    if (!body.senderPhone || !body.whatsappMessageId) {
+    if ((!body.senderPhone && !body.senderLid) || !body.whatsappMessageId) {
       console.error(
         '[whatsapp-bot] Refusing CREATE_EVENT POST — missing fields:',
         {
           senderPhone: body.senderPhone,
+          senderLid: body.senderLid,
           whatsappMessageId: body.whatsappMessageId,
           senderJid: body.senderJid,
         },
@@ -333,6 +338,8 @@ async function dispatchIntent(payload, analysis) {
     await postToApp('/api/whatsapp/rsvp', {
       whatsappMessageId: targetId,
       reactorPhone: payload.senderPhone,
+      reactorLid: payload.senderLid ?? null,
+      reactorJid: payload.senderJid ?? null,
       status: analysis.intent === 'RSVP_YES' ? 'attending' : 'cancelled',
       confidence: analysis.confidence,
     });
@@ -440,6 +447,50 @@ async function resolveTargetGroupId() {
 }
 
 /**
+ * Best-effort LID ↔ phone enrichment via WhatsApp contacts store.
+ * Only works when the person is in the bot account's contacts / open 1:1 chat.
+ * @param {string | null | undefined} jid
+ * @returns {Promise<{ lid: string | null, phone: string | null, name: string | null }>}
+ */
+async function enrichSenderFromWhatsapp(jid) {
+  const empty = { lid: null, phone: null, name: null };
+  if (!jid || typeof client.getContactLidAndPhone !== 'function') return empty;
+
+  try {
+    const rows = await client.getContactLidAndPhone([jid]);
+    const row = Array.isArray(rows) ? rows[0] : null;
+    const lid = row?.lid
+      ? String(row.lid).split('@')[0].replace(/\D/g, '') || null
+      : null;
+    const phone = row?.pn
+      ? String(row.pn).split('@')[0].replace(/\D/g, '') || null
+      : null;
+
+    let name = null;
+    try {
+      const contact = await client.getContactById(jid);
+      name = contact?.pushname || contact?.name || contact?.shortName || null;
+    } catch {
+      // ignore — getContact is flaky on some WA Web builds
+    }
+
+    if (lid || phone) {
+      console.log(
+        `[whatsapp-bot] Enriched ${jid} → lid=${lid ?? 'n/a'} phone=${phone ?? 'n/a'} name=${name ?? 'n/a'}`,
+      );
+    }
+    return { lid, phone, name };
+  } catch (err) {
+    console.warn(
+      '[whatsapp-bot] getContactLidAndPhone failed:',
+      err?.message || err,
+    );
+    return empty;
+  }
+}
+
+/**
+ * Map common RSVP reaction emojis without calling Grok.
  * @param {string | null | undefined} emoji
  * @returns {Intent | null}
  */
@@ -591,12 +642,11 @@ client.on('message', async (message) => {
     if (!decision.ok) return;
 
     // In groups, author is the participant; avoid flaky getContact()/getChat().
-    // Modern WhatsApp may use @lid (not a real phone) — still send digits for lookup.
+    // Modern WhatsApp may use @lid (not a real phone) — enrich when contacts allow.
     const identity = extractSenderIdentity(message);
-    const senderPhone = identity.senderKey;
     const whatsappMessageId = serializeWhatsappMessageId(message);
 
-    if (!senderPhone) {
+    if (!identity.senderKey && !identity.senderJid) {
       console.warn('[whatsapp-bot] Skipping message with unknown sender id.', {
         author: message.author,
         from: message.from,
@@ -610,19 +660,40 @@ client.on('message', async (message) => {
       return;
     }
 
+    const enriched = await enrichSenderFromWhatsapp(identity.senderJid);
+    const senderLid =
+      enriched.lid ||
+      (identity.isLid ? identity.senderKey : null) ||
+      (identity.senderJid?.includes('@lid')
+        ? String(identity.senderJid).split('@')[0].replace(/\D/g, '') || null
+        : null);
+    const senderPhone =
+      enriched.phone || (identity.isLid ? null : identity.senderKey) || null;
+    const senderName = enriched.name || null;
+
+    if (!senderPhone && !senderLid) {
+      console.warn('[whatsapp-bot] Skipping message — no phone or LID.', {
+        author: message.author,
+        from: message.from,
+      });
+      return;
+    }
+
     /** @type {AnalyzePayload} */
     const payload = {
       kind: 'message',
       text: message.body || null,
       reaction: null,
-      senderPhone,
+      senderPhone: senderPhone || '',
+      senderLid,
       senderJid: identity.senderJid,
+      senderName,
       whatsappMessageId,
       targetMessageId: null,
     };
 
     console.log(
-      `[whatsapp-bot] Message from ${senderPhone}${identity.isLid ? ' (lid)' : ''}: ${(payload.text || '').slice(0, 120)}`,
+      `[whatsapp-bot] Message lid=${senderLid ?? 'n/a'} phone=${senderPhone ?? 'n/a'}: ${(payload.text || '').slice(0, 120)}`,
     );
 
     const analysis = await analyzeWithxAI(payload);
@@ -685,14 +756,22 @@ client.on('message_reaction', async (reaction) => {
       );
     }
 
-    const reactorId = reaction.senderId || reaction.id || '';
-    const reactorPhone = String(reactorId)
+    const reactorJid = String(reaction.senderId || reaction.id || '');
+    const reactorIsLid = reactorJid.includes('@lid');
+    const reactorKey = reactorJid
       .split('@')[0]
       .replace(/:\d+$/, '')
       .replace(/\D/g, '');
 
-    if (!reactorPhone) {
-      console.warn('[whatsapp-bot] Skipping reaction with unknown reactor phone.');
+    const enriched = await enrichSenderFromWhatsapp(reactorJid || null);
+    const senderLid =
+      enriched.lid || (reactorIsLid ? reactorKey || null : null);
+    const senderPhone =
+      enriched.phone || (reactorIsLid ? null : reactorKey || null);
+    const senderName = enriched.name || null;
+
+    if (!senderPhone && !senderLid) {
+      console.warn('[whatsapp-bot] Skipping reaction with unknown reactor id.');
       return;
     }
 
@@ -701,7 +780,10 @@ client.on('message_reaction', async (reaction) => {
       kind: 'reaction',
       text: null,
       reaction: emoji,
-      senderPhone: reactorPhone,
+      senderPhone: senderPhone || '',
+      senderLid,
+      senderJid: reactorJid || null,
+      senderName,
       whatsappMessageId: targetMessageId,
       targetMessageId,
     };
@@ -710,7 +792,7 @@ client.on('message_reaction', async (reaction) => {
     const shortcut = intentFromReactionEmoji(emoji);
     if (shortcut) {
       console.log(
-        `[whatsapp-bot] Reaction shortcut ${emoji} → ${shortcut} from ${reactorPhone}`,
+        `[whatsapp-bot] Reaction shortcut ${emoji} → ${shortcut} lid=${senderLid ?? 'n/a'} phone=${senderPhone ?? 'n/a'}`,
       );
       await dispatchIntent(payload, {
         intent: shortcut,

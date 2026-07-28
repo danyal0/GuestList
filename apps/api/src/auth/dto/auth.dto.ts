@@ -6,6 +6,7 @@ import {
   Matches,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 
@@ -14,10 +15,18 @@ const PASSWORD_MESSAGE =
 const PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/;
 
 export class SignupDto {
-  @Transform(({ value }) => String(value).toLowerCase().trim())
-  @IsEmail()
-  @MaxLength(254)
-  email!: string;
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(80)
+  @Transform(({ value }) => String(value).trim())
+  name!: string;
+
+  /** Digits or formatted phone — normalized server-side. */
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(32)
+  @Transform(({ value }) => String(value).trim())
+  phone!: string;
 
   @IsString()
   @MinLength(8)
@@ -25,17 +34,28 @@ export class SignupDto {
   @Matches(PASSWORD_PATTERN, { message: PASSWORD_MESSAGE })
   password!: string;
 
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(80)
-  @Transform(({ value }) => String(value).trim())
-  name!: string;
+  @IsOptional()
+  @ValidateIf((_, v) => v != null && String(v).trim() !== '')
+  @Transform(({ value }) =>
+    value == null || String(value).trim() === ''
+      ? undefined
+      : String(value).toLowerCase().trim(),
+  )
+  @IsEmail()
+  @MaxLength(254)
+  email?: string;
 }
 
 export class LoginDto {
-  @Transform(({ value }) => String(value).toLowerCase().trim())
-  @IsEmail()
-  email!: string;
+  /**
+   * Phone (preferred) or email for existing accounts.
+   * Accepts either; resolved server-side.
+   */
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(254)
+  @Transform(({ value }) => String(value).trim())
+  identifier!: string;
 
   @IsString()
   @IsNotEmpty()

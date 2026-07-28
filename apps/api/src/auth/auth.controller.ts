@@ -58,7 +58,15 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<AuthResponse> {
-    const result = await this.authService.signup(dto.email, dto.password, dto.name, this.meta(req));
+    const result = await this.authService.signup(
+      {
+        name: dto.name,
+        phone: dto.phone,
+        password: dto.password,
+        email: dto.email,
+      },
+      this.meta(req),
+    );
     return this.respondWithAuth(res, result);
   }
 
@@ -71,7 +79,7 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<AuthResponse> {
-    const result = await this.authService.login(dto.email, dto.password, this.meta(req));
+    const result = await this.authService.login(dto.identifier, dto.password, this.meta(req));
     return this.respondWithAuth(res, result);
   }
 

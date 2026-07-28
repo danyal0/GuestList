@@ -150,7 +150,7 @@ function matchesWhere(model: string, row: JsonRow, where: Where): boolean {
 }
 
 const UNIQUE_FIELDS: Record<string, string[][]> = {
-  user: [['id'], ['email']],
+  user: [['id'], ['email'], ['phone'], ['whatsappLid'], ['googleId'], ['appleId']],
   group: [['id'], ['slug']],
   groupMember: [['id'], ['groupId', 'userId']],
   follow: [['id'], ['userId', 'groupId']],
@@ -159,7 +159,7 @@ const UNIQUE_FIELDS: Record<string, string[][]> = {
   friendship: [['id'], ['requesterId', 'addresseeId']],
   refreshToken: [['id'], ['tokenHash']],
   emailToken: [['id'], ['tokenHash']],
-  event: [['id']],
+  event: [['id'], ['whatsappMessageId']],
   conversation: [['id']],
   message: [['id']],
   notification: [['id']],
