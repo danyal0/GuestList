@@ -8,10 +8,17 @@ export type WhatsappUserIdentity = {
   whatsappLid: string | null;
 };
 
+function isPlausiblePhone(digits: string): boolean {
+  return digits.length >= 7 && digits.length <= 15;
+}
+
 /**
  * Resolve a MKE Plays user from WhatsApp sender identity.
  * Preference: whatsappLid → phone → endsWith phone.
  * When found, persist newly learned LID / phone / name links.
+ * When missing but we have a phone and/or LID, auto-create a lightweight
+ * account so events/RSVPs work without a prior web signup (claimable later
+ * by signing up with the same phone).
  */
 export async function findOrLinkWhatsappUser(
   prisma: PrismaService,
@@ -20,6 +27,8 @@ export async function findOrLinkWhatsappUser(
     senderLid?: string | null;
     senderJid?: string | null;
     senderName?: string | null;
+    /** When true (default), create a user if none matches. */
+    autoCreate?: boolean;
   },
 ): Promise<WhatsappUserIdentity | null> {
   const lid =
@@ -29,6 +38,10 @@ export async function findOrLinkWhatsappUser(
       : null);
   let phone = digitsOnly(input.senderPhone);
   if (phone && lid && phone === lid) phone = null;
+  if (phone && !isPlausiblePhone(phone)) phone = null;
+
+  const autoCreate = input.autoCreate !== false;
+  const nameHint = input.senderName?.trim() || null;
 
   let user: WhatsappUserIdentity | null = null;
 
@@ -49,21 +62,43 @@ export async function findOrLinkWhatsappUser(
     });
   }
 
-  if (!user) return null;
+  if (!user) {
+    if (!autoCreate || (!phone && !lid)) return null;
+
+    const displayName =
+      (nameHint && nameHint.length >= 2 && nameHint.length <= 80
+        ? nameHint
+        : null) ||
+      (phone ? `WhatsApp ${phone.slice(-4)}` : `WhatsApp ${lid!.slice(-6)}`);
+
+    user = await prisma.user.create({
+      data: {
+        name: displayName,
+        phone: phone ?? null,
+        whatsappLid: lid ?? null,
+        email: null,
+        passwordHash: null,
+        deletedAt: null,
+        suspendedAt: null,
+      },
+      select: { id: true, name: true, phone: true, whatsappLid: true },
+    });
+
+    return user;
+  }
 
   const patch: { whatsappLid?: string; phone?: string; name?: string } = {};
   if (lid && !user.whatsappLid) patch.whatsappLid = lid;
-  if (phone && !user.phone && phone.length >= 7 && phone.length <= 15) {
+  if (phone && !user.phone && isPlausiblePhone(phone)) {
     patch.phone = phone;
   }
-  const name = input.senderName?.trim();
-  if (name && name.length >= 2 && name.length <= 80 && user.name !== name) {
+  if (nameHint && nameHint.length >= 2 && nameHint.length <= 80 && user.name !== nameHint) {
     const placeholder =
       !user.name ||
       user.name.startsWith('WhatsApp ') ||
       user.name === phone ||
       user.name === lid;
-    if (placeholder) patch.name = name;
+    if (placeholder) patch.name = nameHint;
   }
 
   if (Object.keys(patch).length > 0) {
