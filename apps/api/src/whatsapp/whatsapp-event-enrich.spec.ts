@@ -1,10 +1,13 @@
 import {
+  detectRescheduleCues,
+  extractMapsUrls,
   extractNamedAttendeesFromMessage,
   inferEventCapacity,
   mergeNamedAttendees,
   preferPmForTennisHour,
   resolveCatalogVenue,
   resolveMilwaukeeVenue,
+  scoreRescheduleCandidate,
 } from './whatsapp-event-enrich';
 import { computeSpotsLeft, normalizeCapacity } from '../common/utils/capacity';
 
@@ -101,5 +104,60 @@ describe('normalizeCapacity / computeSpotsLeft', () => {
   it('computes remaining spots', () => {
     expect(computeSpotsLeft(12, 2)).toBe(10);
     expect(computeSpotsLeft(1, 3)).toBe(0);
+  });
+});
+
+describe('detectRescheduleCues / scoreRescheduleCandidate', () => {
+  const sample =
+    'Khatera and I are going to play tennis at Atwater Elementary School in Shorewood about 6 pm (earlier than planned). Everyone else is welcome too!\nhttps://maps.app.goo.gl/5WAt3wATnqqesNv6A';
+
+  it('flags earlier than planned as a strong reschedule cue', () => {
+    const cue = detectRescheduleCues(sample);
+    expect(cue.matched).toBe(true);
+    expect(cue.direction).toBe('earlier');
+    expect(cue.confidence).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it('extracts Google Maps short links', () => {
+    expect(extractMapsUrls(sample)).toEqual([
+      'https://maps.app.goo.gl/5WAt3wATnqqesNv6A',
+    ]);
+  });
+
+  it('scores the host Atwater event highly for this reschedule message', () => {
+    const venue = resolveCatalogVenue(sample)!.venue;
+    const laterSameDay = new Date('2026-07-28T23:00:00.000Z'); // ~6pm Chicago
+    const earlierPlan = new Date('2026-07-29T01:00:00.000Z'); // ~8pm Chicago
+    const newStart = laterSameDay;
+    const score = scoreRescheduleCandidate(
+      {
+        id: 'evt_1',
+        title: 'Atwater Elementary tennis 6pm',
+        startTime: earlierPlan,
+        endTime: new Date(earlierPlan.getTime() + 90 * 60 * 1000),
+        locationName: venue.name,
+        address: venue.address,
+        venueId: 'venue_atwater',
+        whatsappMessageId: 'wamid_old',
+        description: 'prior invite',
+        capacity: 12,
+      },
+      {
+        venueId: 'venue_atwater',
+        locationName: venue.name,
+        address: venue.address,
+        newStart,
+        messageBody: sample,
+        direction: 'earlier',
+        timezone: 'America/Chicago',
+      },
+    );
+    expect(score).toBeGreaterThanOrEqual(0.7);
+  });
+
+  it('extracts Khatera from Khatera and I', () => {
+    expect(extractNamedAttendeesFromMessage(sample)).toEqual(
+      expect.arrayContaining(['Khatera']),
+    );
   });
 });

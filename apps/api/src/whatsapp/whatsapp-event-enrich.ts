@@ -280,6 +280,7 @@ export function buildEventDescription(parts: {
   whatsappMessageId?: string | null;
   capacity?: number | null;
   namedAttendees?: string[] | null;
+  mapsUrls?: string[] | null;
 }): string {
   const blocks: string[] = [];
   if (parts.messageBody?.trim()) {
@@ -305,6 +306,9 @@ export function buildEventDescription(parts: {
   if (parts.namedAttendees && parts.namedAttendees.length > 0) {
     blocks.push(`Mentioned going: ${parts.namedAttendees.join(', ')}`);
   }
+  if (parts.mapsUrls && parts.mapsUrls.length > 0) {
+    blocks.push(`Maps:\n${parts.mapsUrls.join('\n')}`);
+  }
   if (parts.suggestedTime?.trim()) {
     blocks.push(`Time clue: ${parts.suggestedTime.trim()}`);
   }
@@ -326,4 +330,145 @@ export function catalogVenuesForPrompt(sport: SportCode = 'TENNIS'): string {
       return `- slug=${v.slug} name="${v.name}" address="${v.address}" aliases=[${v.aliases.join(', ')}] lat=${v.latitude} lng=${v.longitude}${courts}${cap}`;
     })
     .join('\n');
+}
+
+const RESCHEDULE_PATTERNS: Array<{ re: RegExp; direction: 'earlier' | 'later' | 'move' }> = [
+  { re: /\bearlier\s+than\s+planned\b/i, direction: 'earlier' },
+  { re: /\blater\s+than\s+planned\b/i, direction: 'later' },
+  { re: /\b(?:pushed|moved|shifted)\s+(?:it\s+)?(?:up|earlier)\b/i, direction: 'earlier' },
+  { re: /\b(?:pushed|moved|shifted)\s+(?:it\s+)?(?:back|later)\b/i, direction: 'later' },
+  { re: /\b(?:reschedul(?:e|ed|ing)|time\s+change|changed\s+(?:the\s+)?time)\b/i, direction: 'move' },
+  { re: /\binstead\s+of\s+(?:\d|the\s+earlier|before)\b/i, direction: 'move' },
+  { re: /\bnew\s+time\b/i, direction: 'move' },
+  { re: /\b(?:actually|now)\s+(?:at|around|about)\s+\d{1,2}/i, direction: 'move' },
+  { re: /\bmoving\s+(?:to|it\s+to)\b/i, direction: 'move' },
+];
+
+export type RescheduleCue = {
+  matched: boolean;
+  confidence: number;
+  direction: 'earlier' | 'later' | 'move' | null;
+  matchedPhrase: string | null;
+};
+
+/** Lexical detection that the host is changing an existing plan. */
+export function detectRescheduleCues(
+  messageBody: string | null | undefined,
+): RescheduleCue {
+  if (!messageBody?.trim()) {
+    return { matched: false, confidence: 0, direction: null, matchedPhrase: null };
+  }
+  for (const { re, direction } of RESCHEDULE_PATTERNS) {
+    const m = messageBody.match(re);
+    if (m) {
+      const confidence =
+        direction === 'earlier' || direction === 'later' ? 0.95 : 0.85;
+      return {
+        matched: true,
+        confidence,
+        direction,
+        matchedPhrase: m[0]!,
+      };
+    }
+  }
+  return { matched: false, confidence: 0, direction: null, matchedPhrase: null };
+}
+
+/** Pull Google Maps / Apple Maps short links from a WhatsApp body. */
+export function extractMapsUrls(messageBody: string | null | undefined): string[] {
+  if (!messageBody) return [];
+  const urls = messageBody.match(
+    /https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|maps\.google\.com|www\.google\.com\/maps|maps\.apple\.com)[^\s)]*/gi,
+  );
+  if (!urls?.length) return [];
+  const out: string[] = [];
+  for (const u of urls) {
+    const clean = u.replace(/[.,;]+$/, '');
+    if (!out.includes(clean)) out.push(clean);
+  }
+  return out;
+}
+
+export type RescheduleCandidate = {
+  id: string;
+  title: string;
+  startTime: Date;
+  endTime: Date;
+  locationName: string | null;
+  address: string | null;
+  venueId: string | null;
+  whatsappMessageId: string | null;
+  description: string;
+  capacity: number | null;
+};
+
+/**
+ * Score how likely an existing hosted event is the one being rescheduled.
+ * Returns 0–1.
+ */
+export function scoreRescheduleCandidate(
+  candidate: RescheduleCandidate,
+  opts: {
+    venueId: string | null;
+    locationName: string | null;
+    address: string | null;
+    newStart: Date;
+    messageBody: string;
+    direction: RescheduleCue['direction'];
+    timezone?: string;
+  },
+): number {
+  let score = 0;
+  const tz = opts.timezone || 'America/Chicago';
+  const hay = [
+    candidate.title,
+    candidate.locationName,
+    candidate.address,
+    candidate.description,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (opts.venueId && candidate.venueId && opts.venueId === candidate.venueId) {
+    score += 0.4;
+  } else {
+    const place = (opts.locationName || opts.address || '').toLowerCase();
+    if (place && hay.includes(place.slice(0, Math.min(12, place.length)))) {
+      score += 0.25;
+    } else if (/\batwater\b/i.test(opts.messageBody) && /\batwater\b/i.test(hay)) {
+      score += 0.35;
+    } else if (/\bmckinley|lake\s*front\b/i.test(opts.messageBody) && /mckinley|lake\s*front|lincoln memorial/i.test(hay)) {
+      score += 0.35;
+    }
+  }
+
+  if (sameCalendarDay(candidate.startTime, opts.newStart, tz)) {
+    score += 0.25;
+  }
+
+  const deltaMs = opts.newStart.getTime() - candidate.startTime.getTime();
+  const absHours = Math.abs(deltaMs) / (60 * 60 * 1000);
+  if (absHours <= 8) score += 0.15;
+  else if (absHours <= 18) score += 0.08;
+
+  if (opts.direction === 'earlier' && deltaMs < 0) score += 0.12;
+  if (opts.direction === 'later' && deltaMs > 0) score += 0.12;
+
+  if (/tennis/i.test(candidate.title) || /tennis/i.test(opts.messageBody)) {
+    score += 0.05;
+  }
+  if (candidate.whatsappMessageId) score += 0.05;
+
+  return Math.min(1, score);
+}
+
+function sameCalendarDay(a: Date, b: Date, timeZone: string): boolean {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return fmt.format(a) === fmt.format(b);
 }

@@ -147,6 +147,8 @@ if (!XAI_API_KEY) {
  *     capacity: number | null,
  *     capacityConfidence: number | null,
  *     namedAttendees: string[] | null,
+ *     isReschedule: boolean | null,
+ *     rescheduleConfidence: number | null,
  *     timezone: string | null,
  *     venueConfidence: number | null,
  *     addressConfidence: number | null,
@@ -170,15 +172,17 @@ const SYSTEM_PROMPT = `You are a STRICT extractor for MKE Plays (Milwaukee tenni
 Do NOT invent places, addresses, or instructions that are not supported by the message or the VERIFIED catalog below.
 
 Identify exactly one intent: CREATE_EVENT | RSVP_YES | RSVP_NO | IGNORE.
+CREATE_EVENT also covers reschedules of an existing match (still CREATE_EVENT; set isReschedule + rescheduleConfidence).
 
 WORD-LEVEL ANALYSIS (mandatory for CREATE_EVENT):
 Break the message into tokens/phrases and assign each a role when possible:
-- person name (who is going / playing besides the sender)
-- time / day cue
-- place / venue cue
+- person name (who is going / playing besides the sender) — "Khatera and I" → namedAttendees=["Khatera"]
+- time / day cue ("about 6 pm")
+- place / venue cue ("Atwater Elementary School in Shorewood")
+- reschedule cue ("earlier than planned", "later than planned", "moved to", "new time", "instead of") → isReschedule=true
 - capacity cue (singles=2, doubles=4, "need 3", "4 people", N courts → N×4)
 - skill / format / court info
-- RSVP intent of named people ("X is also going" → X in namedAttendees)
+- maps links (maps.app.goo.gl / google maps) — keep in notes if useful; do not invent coordinates from them
 Ignore filler (hi, lol, please). Every meaningful word should inform a field or confidence.
 
 VERIFIED Milwaukee tennis venues (ONLY use these for precise address/lat/lng unless the message itself contains a full street address with numbers). Each lists courts + defaultCapacity (courts×4 for open play):
@@ -187,20 +191,21 @@ ${catalogPromptBlock()}
 Critical local rules:
 - For TENNIS, casual "lake front" / "lakefront" means McKinley Tennis Courts (slug=mckinley-tennis-courts), NOT Lake Park.
 - "lake park" / Bradford / Kenwood → Lake Park Tennis Courts only when those words appear.
-- "atwater" → Atwater Elementary School courts in Shorewood.
+- "atwater" / Shorewood Atwater → Atwater Elementary School courts (slug=atwater-elementary-tennis).
 - Timezone America/Chicago. Bare hours 1–8 without am/pm → prefer PM for tennis (6 → 6pm). Morning only if explicit.
 - suggestedTime: ISO-8601 with Chicago offset when possible.
 - capacity: prefer explicit party size from the message; else singles/doubles; else venue defaultCapacity from catalog. Set capacityConfidence honestly.
-- namedAttendees: first names of people the message says are going/playing (e.g. "khatera is also going" → ["Khatera"]). Do NOT include the sender.
+- namedAttendees: first names of people the message says are going/playing (e.g. "Khatera and I are going" → ["Khatera"]). Do NOT include the sender.
+- isReschedule / rescheduleConfidence: set high when the host is changing a prior plan ("earlier than planned" is a strong clue). The API will update the existing event and notify RSVPs.
 
 Strictness:
-- Set venueConfidence / addressConfidence / timeConfidence / capacityConfidence from 0–1 honestly.
+- Set venueConfidence / addressConfidence / timeConfidence / capacityConfidence / rescheduleConfidence from 0–1 honestly.
 - If you cannot map to a catalog slug confidently, leave address/lat/lng null and set venueConfidence < 0.7.
 - instructions/notes/skillLevel/courtInfo: ONLY if present or strongly implied in the message. Do NOT invent meetup fluff.
 - title may be a short paraphrase of the ask.
 
 Return ONLY minified JSON:
-{"intent":"CREATE_EVENT"|"RSVP_YES"|"RSVP_NO"|"IGNORE","confidence":0.0,"extractedData":{"title":null,"suggestedTime":null,"venue":null,"locationName":null,"address":null,"latitude":null,"longitude":null,"venueSlug":null,"instructions":null,"notes":null,"skillLevel":null,"courtInfo":null,"durationMinutes":null,"capacity":null,"capacityConfidence":0.0,"namedAttendees":[],"timezone":"America/Chicago","venueConfidence":0.0,"addressConfidence":0.0,"timeConfidence":0.0}}`;
+{"intent":"CREATE_EVENT"|"RSVP_YES"|"RSVP_NO"|"IGNORE","confidence":0.0,"extractedData":{"title":null,"suggestedTime":null,"venue":null,"locationName":null,"address":null,"latitude":null,"longitude":null,"venueSlug":null,"instructions":null,"notes":null,"skillLevel":null,"courtInfo":null,"durationMinutes":null,"capacity":null,"capacityConfidence":0.0,"namedAttendees":[],"isReschedule":false,"rescheduleConfidence":0.0,"timezone":"America/Chicago","venueConfidence":0.0,"addressConfidence":0.0,"timeConfidence":0.0}}`;
 
 const REFINE_VENUE_PROMPT = `You refine ONLY venue/address for a Milwaukee tennis WhatsApp message.
 Use the VERIFIED catalog. For tennis, "lake front"/"lakefront" = McKinley Tennis Courts.
@@ -475,6 +480,8 @@ function parseAnalysisJson(raw) {
         capacity: nullableNumber(extracted.capacity),
         capacityConfidence: nullableNumber(extracted.capacityConfidence),
         namedAttendees: nullableStringArray(extracted.namedAttendees),
+        isReschedule: Boolean(extracted.isReschedule),
+        rescheduleConfidence: nullableNumber(extracted.rescheduleConfidence),
         timezone: nullableString(extracted.timezone) || 'America/Chicago',
         venueSlug: nullableString(extracted.venueSlug),
         venueConfidence: nullableNumber(extracted.venueConfidence),
@@ -559,6 +566,13 @@ function extractNamedAttendeesFromText(text) {
     'need',
     'pm',
     'am',
+    'play',
+    'playing',
+    'elementary',
+    'school',
+    'shorewood',
+    'everyone',
+    'welcome',
   ]);
   const found = [];
   const push = (raw) => {
@@ -582,6 +596,22 @@ function extractNamedAttendeesFromText(text) {
     while ((m = re.exec(text)) !== null) push(m[1]);
   }
   return found;
+}
+
+function detectRescheduleCuesLocal(text) {
+  if (!text) return { matched: false, confidence: 0 };
+  const patterns = [
+    /\bearlier\s+than\s+planned\b/i,
+    /\blater\s+than\s+planned\b/i,
+    /\b(?:reschedul(?:e|ed|ing)|time\s+change|changed\s+(?:the\s+)?time)\b/i,
+    /\b(?:pushed|moved|shifted)\s+(?:it\s+)?(?:up|earlier|back|later)\b/i,
+    /\bnew\s+time\b/i,
+    /\bmoving\s+(?:to|it\s+to)\b/i,
+  ];
+  for (const re of patterns) {
+    if (re.test(text)) return { matched: true, confidence: 0.95 };
+  }
+  return { matched: false, confidence: 0 };
 }
 
 /** Infer capacity when AI omits it, using venue catalog defaults. */
@@ -650,6 +680,8 @@ function ignoreResult(confidence) {
       capacity: null,
       capacityConfidence: null,
       namedAttendees: [],
+      isReschedule: false,
+      rescheduleConfidence: null,
       timezone: 'America/Chicago',
       venueSlug: null,
       venueConfidence: null,
@@ -728,6 +760,12 @@ async function dispatchIntent(payload, analysis) {
       );
     });
     const capacity = inferCapacityLocal(x, payload.text);
+    const localReschedule = detectRescheduleCuesLocal(payload.text);
+    const rescheduleConfidence = Math.max(
+      localReschedule.confidence,
+      typeof x.rescheduleConfidence === 'number' ? x.rescheduleConfidence : 0,
+      x.isReschedule ? 0.85 : 0,
+    );
     const body = {
       senderPhone: payload.senderPhone,
       senderLid: payload.senderLid ?? null,
@@ -754,6 +792,8 @@ async function dispatchIntent(payload, analysis) {
       capacity,
       capacityConfidence: x.capacityConfidence,
       namedAttendees,
+      isReschedule: Boolean(x.isReschedule) || localReschedule.matched,
+      rescheduleConfidence,
       timezone: x.timezone || 'America/Chicago',
       confidence: analysis.confidence,
     };
@@ -770,7 +810,7 @@ async function dispatchIntent(payload, analysis) {
       return;
     }
     console.log(
-      `[whatsapp-bot] CREATE_EVENT title=${body.title} slug=${body.venueSlug} capacity=${body.capacity} attendees=${JSON.stringify(body.namedAttendees)} addr=${body.address} time=${body.suggestedTime} vConf=${body.venueConfidence} aConf=${body.addressConfidence}`,
+      `[whatsapp-bot] CREATE_EVENT title=${body.title} slug=${body.venueSlug} capacity=${body.capacity} attendees=${JSON.stringify(body.namedAttendees)} reschedule=${body.isReschedule}/${body.rescheduleConfidence} addr=${body.address} time=${body.suggestedTime} vConf=${body.venueConfidence} aConf=${body.addressConfidence}`,
     );
     await postToApp('/api/whatsapp/create-event', body);
     return;
