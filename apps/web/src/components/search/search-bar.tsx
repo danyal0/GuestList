@@ -48,7 +48,7 @@ export function SearchBar({
         autoFocus={autoFocus}
         aria-label="Search"
         enterKeyHint="search"
-        className="h-12 w-full rounded-[var(--radius-pill)] border border-[var(--color-hairline)] bg-[var(--color-surface)] pl-11 pr-11 text-[15px] shadow-[var(--shadow-card)] placeholder:text-[var(--color-ink-tertiary)] focus:border-[var(--color-accent)] [&::-webkit-search-cancel-button]:hidden"
+        className="h-12 w-full rounded-[var(--radius-pill)] border border-[var(--color-hairline)] bg-[var(--color-surface)] pl-11 pr-11 text-[15px] text-[var(--color-ink)] caret-[var(--color-ink)] shadow-[var(--shadow-card)] placeholder:text-[var(--color-ink-tertiary)] focus:border-[var(--color-accent)] [&::-webkit-search-cancel-button]:hidden"
       />
       {query && (
         <button
