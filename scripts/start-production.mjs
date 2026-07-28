@@ -4,12 +4,17 @@
  *   - Nest API on INTERNAL_API_PORT (default 4000)
  *   - Next.js on INTERNAL_WEB_PORT (default 3000)
  *   - Reverse proxy on PORT (Railway's public port) routing
- *     /api, /uploads, /socket.io → API; everything else → web
+ *     /api/whatsapp/* → web; other /api, /uploads, /socket.io → API; else → web
+ *   - Optional WhatsApp bot (WHATSAPP_BOT_ENABLED=true) as a sibling process
  */
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_URL = process.env.PUBLIC_URL || 'https://mkeplays-production.up.railway.app';
 
 // Defaults for a single Railway service with file-backed mock data.
@@ -27,8 +32,11 @@ process.env.JWT_REFRESH_SECRET ??= 'mkeplays-dev-refresh-secret-change-me-32b';
 const PUBLIC_PORT = Number(process.env.PORT || 8080);
 const API_PORT = Number(process.env.INTERNAL_API_PORT || 4000);
 const WEB_PORT = Number(process.env.INTERNAL_WEB_PORT || 3000);
+const WHATSAPP_BOT_ENABLED = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.WHATSAPP_BOT_ENABLED || '').toLowerCase(),
+);
 
-/** @type {{ label: string, child: import('node:child_process').ChildProcess }[]} */
+/** @type {{ label: string, child: import('node:child_process').ChildProcess, critical?: boolean }[]} */
 const children = [];
 let shuttingDown = false;
 
@@ -37,24 +45,73 @@ function log(message) {
 }
 
 function isApiPath(urlPath) {
-  const path = urlPath.split('?')[0] ?? '';
+  const pathName = urlPath.split('?')[0] ?? '';
   // WhatsApp bridge lives on Next.js App Router handlers, not Nest.
-  if (path.startsWith('/api/whatsapp')) return false;
-  return path.startsWith('/api') || path.startsWith('/uploads') || path.startsWith('/socket.io');
+  if (pathName.startsWith('/api/whatsapp')) return false;
+  return (
+    pathName.startsWith('/api') ||
+    pathName.startsWith('/uploads') ||
+    pathName.startsWith('/socket.io')
+  );
 }
 
-function spawnProcess(label, command, args, env) {
-  log(`starting ${label}`);
+/**
+ * @param {string} label
+ * @param {string} command
+ * @param {string[]} args
+ * @param {NodeJS.ProcessEnv} [env]
+ * @param {{ critical?: boolean, cwd?: string }} [opts]
+ *   critical=false → exit does not tear down the whole service (used for the bot)
+ */
+function spawnProcess(label, command, args, env = {}, opts = {}) {
+  const critical = opts.critical !== false;
+  log(`starting ${label}${critical ? '' : ' (non-critical)'}`);
   const child = spawn(command, args, {
     stdio: 'inherit',
+    cwd: opts.cwd,
     env: { ...process.env, ...env },
   });
-  children.push({ label, child });
+  const entry = { label, child, critical };
+  children.push(entry);
   child.on('exit', (code, signal) => {
     if (shuttingDown) return;
     log(`${label} exited (code=${code ?? 'null'} signal=${signal ?? 'null'})`);
+    if (!critical) {
+      // Auto-restart WhatsApp bot after a brief backoff.
+      const delayMs = Number(process.env.WHATSAPP_BOT_RESTART_MS || '8000');
+      log(`restarting ${label} in ${delayMs}ms`);
+      setTimeout(() => {
+        if (shuttingDown) return;
+        const idx = children.indexOf(entry);
+        if (idx >= 0) children.splice(idx, 1);
+        spawnWhatsappBot();
+      }, delayMs).unref();
+      return;
+    }
     shutdown(typeof code === 'number' ? code : 1);
   });
+}
+
+function spawnWhatsappBot() {
+  if (!WHATSAPP_BOT_ENABLED) return;
+
+  const botDir = path.resolve(__dirname, 'whatsapp');
+  spawnProcess(
+    'whatsapp-bot',
+    'npm',
+    ['start'],
+    {
+      // Hit Next.js directly inside the container (bypass public proxy).
+      APP_BASE_URL:
+        process.env.APP_BASE_URL || `http://127.0.0.1:${WEB_PORT}`,
+      WHATSAPP_AUTH_PATH:
+        process.env.WHATSAPP_AUTH_PATH || '/data/wwebjs_auth',
+      PUPPETEER_EXECUTABLE_PATH:
+        process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+      PUPPETEER_SKIP_DOWNLOAD: 'true',
+    },
+    { critical: false, cwd: botDir },
+  );
 }
 
 function shutdown(code = 0) {
@@ -73,12 +130,12 @@ function shutdown(code = 0) {
 process.on('SIGTERM', () => shutdown(0));
 process.on('SIGINT', () => shutdown(0));
 
-function waitFor(port, path, timeoutMs) {
+function waitFor(port, pathName, timeoutMs) {
   const started = Date.now();
   return new Promise((resolve, reject) => {
     const attempt = () => {
       const req = http.get(
-        { hostname: '127.0.0.1', port, path, timeout: 2000 },
+        { hostname: '127.0.0.1', port, path: pathName, timeout: 2000 },
         (res) => {
           res.resume();
           if ((res.statusCode ?? 500) < 500) {
@@ -96,7 +153,11 @@ function waitFor(port, path, timeoutMs) {
 
       function retry(err) {
         if (Date.now() - started > timeoutMs) {
-          reject(new Error(`Timed out waiting for 127.0.0.1:${port}${path} (${err.message})`));
+          reject(
+            new Error(
+              `Timed out waiting for 127.0.0.1:${port}${pathName} (${err.message})`,
+            ),
+          );
           return;
         }
         setTimeout(attempt, 400);
@@ -204,6 +265,14 @@ async function main() {
       resolve(undefined);
     });
   });
+
+  // Start WhatsApp after the web routes it POSTs to are healthy.
+  if (WHATSAPP_BOT_ENABLED) {
+    log('WHATSAPP_BOT_ENABLED=true — starting in-process WhatsApp bridge');
+    spawnWhatsappBot();
+  } else {
+    log('WhatsApp bot disabled (set WHATSAPP_BOT_ENABLED=true to run it on Railway)');
+  }
 }
 
 main().catch((err) => {

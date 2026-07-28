@@ -75,21 +75,22 @@ The dev client auto-targets your machine's API on port 4000; set `EXPO_PUBLIC_AP
 
 A long-running Node process watches a WhatsApp group, classifies messages with xAI/Grok, and POSTs into Next.js routes that write Events / RSVPs via Prisma.
 
-**Important:** this bot is a **separate process** from the Railway web/API service. Bot deps (`whatsapp-web.js` → Puppeteer/Chromium) live under `scripts/whatsapp/` and are **not** installed on Railway, so they cannot bloat or crash the production container.
+**Railway-only:** set `WHATSAPP_BOT_ENABLED=true` on the Railway service. The production starter launches the bot beside API + web (uses system Chromium from railpack). See [Deployment → WhatsApp](docs/DEPLOYMENT.md).
+
+**Or run separately:**
 
 ```bash
 # 1. Env for the bot (repo root)
 cp .env.whatsapp.example .env
 # fill WHATSAPP_BOT_TOKEN, XAI_API_KEY, APP_BASE_URL, WHATSAPP_GROUP_NAME
 
-# 2. Env for Next.js (apps/web)
-# add matching WHATSAPP_BOT_TOKEN, DATABASE_URL, WHATSAPP_DEFAULT_GROUP_ID
-# see apps/web/.env.example
+# 2. Env for Next.js / Railway
+# WHATSAPP_BOT_TOKEN, DATABASE_URL, WHATSAPP_DEFAULT_GROUP_ID
 
 # 3. Apply schema (User.phone + Event.whatsappMessageId)
 npm run db:migrate
 
-# 4. Install bot deps locally (or on a dedicated always-on host), then:
+# 4. Local / VPS only:
 npm run whatsapp:install
 npm run whatsapp:bot   # scan QR on first run
 ```
