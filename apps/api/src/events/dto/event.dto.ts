@@ -240,4 +240,9 @@ export class ListEventsDto extends PaginationDto {
   @IsOptional()
   @IsIn(['soonest', 'popular', 'newest'])
   sort?: 'soonest' | 'popular' | 'newest';
+
+  /** Defaults to PUBLISHED. Pass CANCELLED to browse cancelled events. */
+  @IsOptional()
+  @IsEnum(EventStatus)
+  status?: EventStatus;
 }

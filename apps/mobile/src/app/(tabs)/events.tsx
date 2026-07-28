@@ -10,7 +10,7 @@ import { radius, spacing, useTheme } from '@/lib/theme';
 import type { EventSummary, Paginated } from '@/lib/types';
 import { useAuthStore } from '@/stores/auth';
 
-type Filter = 'all' | 'mine';
+type Filter = 'all' | 'mine' | 'cancelled';
 
 export default function EventsScreen() {
   const { colors } = useTheme();
@@ -21,6 +21,13 @@ export default function EventsScreen() {
   const browse = useQuery({
     queryKey: ['events-browse'],
     queryFn: () => api<Paginated<EventSummary>>('/events?limit=20&sort=soonest'),
+    enabled: filter === 'all',
+  });
+  const cancelled = useQuery({
+    queryKey: ['events-cancelled'],
+    queryFn: () =>
+      api<Paginated<EventSummary>>('/events?limit=20&status=CANCELLED'),
+    enabled: filter === 'cancelled',
   });
   const mine = useQuery({
     queryKey: ['events-mine'],
@@ -28,13 +35,17 @@ export default function EventsScreen() {
     enabled: !!user && filter === 'mine',
   });
 
-  const active = filter === 'all' ? browse : mine;
+  const active =
+    filter === 'all' ? browse : filter === 'cancelled' ? cancelled : mine;
   const items: EventSummary[] =
-    filter === 'all' ? (browse.data?.items ?? []) : (mine.data ?? []);
+    filter === 'all'
+      ? (browse.data?.items ?? [])
+      : filter === 'cancelled'
+        ? (cancelled.data?.items ?? [])
+        : (mine.data ?? []);
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Segmented control */}
       <View
         style={{
           flexDirection: 'row',
@@ -44,7 +55,11 @@ export default function EventsScreen() {
           backgroundColor: colors.surface3,
         }}
       >
-        {(['all', 'mine'] as const).map((value) => (
+        {([
+          { value: 'all', label: 'Browse' },
+          { value: 'mine', label: 'Mine' },
+          { value: 'cancelled', label: 'Cancelled' },
+        ] as const).map(({ value, label }) => (
           <Pressable
             key={value}
             accessibilityRole="tab"
@@ -64,8 +79,14 @@ export default function EventsScreen() {
               alignItems: 'center',
             }}
           >
-            <Text style={{ fontSize: 14, fontWeight: '600', color: filter === value ? colors.ink : colors.inkSecondary }}>
-              {value === 'all' ? 'Browse' : 'My events'}
+            <Text
+              style={{
+                fontSize: 13,
+                fontWeight: '600',
+                color: filter === value ? colors.ink : colors.inkSecondary,
+              }}
+            >
+              {label}
             </Text>
           </Pressable>
         ))}
@@ -82,11 +103,19 @@ export default function EventsScreen() {
       ) : items.length === 0 ? (
         <EmptyState
           icon="calendar-outline"
-          title={filter === 'mine' ? 'No events yet' : 'No upcoming events'}
+          title={
+            filter === 'mine'
+              ? 'No events yet'
+              : filter === 'cancelled'
+                ? 'No cancelled events'
+                : 'No upcoming events'
+          }
           description={
             filter === 'mine'
               ? 'RSVP to an event and it will show up here.'
-              : 'Check back soon — new events are added all the time.'
+              : filter === 'cancelled'
+                ? 'Cancelled plans from the last 60 days show up here.'
+                : 'Check back soon — new events are added all the time.'
           }
         />
       ) : (
@@ -94,7 +123,11 @@ export default function EventsScreen() {
           data={items}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => <EventCard event={item} />}
-          contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: 48, gap: spacing.md }}
+          contentContainerStyle={{
+            paddingHorizontal: spacing.lg,
+            paddingBottom: 48,
+            gap: spacing.md,
+          }}
           refreshing={active.isRefetching}
           onRefresh={() => active.refetch()}
         />
