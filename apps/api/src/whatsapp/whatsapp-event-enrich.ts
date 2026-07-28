@@ -1,9 +1,9 @@
 /**
  * Milwaukee-area tennis venue catalog + helpers.
- * Source of truth: apps/api/data/venues-catalog.json (also seeded into Venue table).
+ * Source of truth: apps/api/src/data/venues-catalog.json (also seeded into Venue table).
  */
 
-import catalogJson from '../../data/venues-catalog.json';
+import catalogJson from '../data/venues-catalog.json';
 
 export type SportCode = 'TENNIS';
 

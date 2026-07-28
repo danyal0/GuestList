@@ -31,8 +31,11 @@ const {
 
 function loadVenuesCatalog() {
   const candidates = [
+    path.resolve(__dirname, '../../apps/api/src/data/venues-catalog.json'),
     path.resolve(__dirname, '../../apps/api/data/venues-catalog.json'),
+    path.resolve(process.cwd(), 'apps/api/src/data/venues-catalog.json'),
     path.resolve(process.cwd(), 'apps/api/data/venues-catalog.json'),
+    path.resolve(process.cwd(), 'src/data/venues-catalog.json'),
     path.resolve(process.cwd(), 'data/venues-catalog.json'),
   ];
   for (const p of candidates) {
