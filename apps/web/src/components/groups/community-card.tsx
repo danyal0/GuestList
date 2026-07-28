@@ -31,7 +31,7 @@ export function CommunityCard({ group, className }: { group: Group; className?: 
     >
       <Link
         href={`/groups/${group.slug}`}
-        aria-label={`${group.name}, ${group.memberCount} members`}
+        aria-label={`${group.name}, ${group.memberCount ?? 0} members`}
         className="group block overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-hairline)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] transition-shadow hover:shadow-[var(--shadow-float)]"
       >
         <div className={cn('relative h-28 bg-gradient-to-br', gradient)}>
@@ -59,7 +59,7 @@ export function CommunityCard({ group, className }: { group: Group; className?: 
           <div className="mt-3 flex items-center gap-3 text-[13px] font-medium text-[var(--color-ink-secondary)]">
             <span className="flex items-center gap-1.5">
               <Users className="h-3.5 w-3.5" aria-hidden />
-              {group.memberCount.toLocaleString()}
+              {(group.memberCount ?? 0).toLocaleString()}
             </span>
             {group.location && (
               <span className="flex min-w-0 items-center gap-1.5">

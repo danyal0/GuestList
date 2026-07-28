@@ -147,7 +147,7 @@ export default function GroupDetailPage() {
           <img src={g.coverImage} alt="" className="h-full w-full object-cover" />
         )}
         <Badge variant="neutral" className="glass absolute left-4 top-4 border-0 text-white">
-          {CATEGORY_LABELS[g.category]}
+          {CATEGORY_LABELS[g.category] ?? g.category}
         </Badge>
       </div>
 
@@ -165,10 +165,10 @@ export default function GroupDetailPage() {
           </h1>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[14px] text-[var(--color-ink-secondary)]">
             <span className="flex items-center gap-1.5">
-              <Users className="h-4 w-4" aria-hidden /> {g.memberCount.toLocaleString()} members
+              <Users className="h-4 w-4" aria-hidden /> {(g.memberCount ?? 0).toLocaleString()} members
             </span>
             <span className="flex items-center gap-1.5">
-              <CalendarDays className="h-4 w-4" aria-hidden /> {g.upcomingEvents} upcoming
+              <CalendarDays className="h-4 w-4" aria-hidden /> {g.upcomingEvents ?? 0} upcoming
             </span>
             {g.location && (
               <span className="flex items-center gap-1.5">
