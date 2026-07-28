@@ -1049,6 +1049,7 @@ export class WhatsappService {
     reactorPhone?: string;
     reactorLid?: string | null;
     reactorJid?: string | null;
+    reactorName?: string | null;
     status?: string;
     confidence?: number;
   }) {
@@ -1095,6 +1096,7 @@ export class WhatsappService {
       senderPhone: reactorPhone || null,
       senderLid: reactorLid || null,
       senderJid: body.reactorJid,
+      senderName: body.reactorName,
     });
 
     if (!user) {

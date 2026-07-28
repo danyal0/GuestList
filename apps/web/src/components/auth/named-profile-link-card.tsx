@@ -19,11 +19,12 @@ export type LinkSuggestion = {
   userId: string;
   name: string;
   clues: LinkSuggestionClue[];
+  match?: 'name' | 'phone';
 };
 
 /**
  * Shown after signup (or on settings) when WhatsApp already created a
- * name-only placeholder (e.g. "Khatera is going") that may be this person.
+ * name-only placeholder or phone/LID bridge account that may be this person.
  */
 export function NamedProfileLinkCard({
   suggestions: initial,
@@ -56,6 +57,8 @@ export function NamedProfileLinkCard({
     }
   };
 
+  const hasPhoneMatch = suggestions.some((s) => s.match === 'phone');
+
   return (
     <section
       className="rounded-[var(--radius-lg)] border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)] p-4"
@@ -67,8 +70,9 @@ export function NamedProfileLinkCard({
             Is this you from WhatsApp?
           </h2>
           <p className="mt-1 text-[13px] leading-relaxed text-[var(--color-ink-secondary)]">
-            Someone already RSVP’d under a matching name. Link to keep that history on this
-            account. WhatsApp LID/phone will still attach when you message the group.
+            {hasPhoneMatch
+              ? 'This phone already has WhatsApp activity on MKE Plays. Link to keep RSVPs and attach your WhatsApp identity to this account.'
+              : 'Someone already RSVP’d under a matching name. Link to keep that history on this account. WhatsApp LID/phone will still attach when you message the group.'}
           </p>
         </div>
         {onDismiss ? (
@@ -89,16 +93,23 @@ export function NamedProfileLinkCard({
             className="rounded-[var(--radius-md)] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3"
           >
             <p className="text-[14px] font-semibold">{suggestion.name}</p>
-            <ul className="mt-2 space-y-1.5">
-              {(suggestion.clues ?? []).slice(0, 3).map((clue) => (
-                <li
-                  key={clue.eventId}
-                  className="text-[13px] leading-snug text-[var(--color-ink-secondary)]"
-                >
-                  {clue.summary}
-                </li>
-              ))}
-            </ul>
+            {suggestion.match === 'phone' && (suggestion.clues ?? []).length === 0 ? (
+              <p className="mt-2 text-[13px] leading-snug text-[var(--color-ink-secondary)]">
+                WhatsApp account for this phone number — link to attach your LID and any future
+                group messages.
+              </p>
+            ) : (
+              <ul className="mt-2 space-y-1.5">
+                {(suggestion.clues ?? []).slice(0, 3).map((clue) => (
+                  <li
+                    key={clue.eventId}
+                    className="text-[13px] leading-snug text-[var(--color-ink-secondary)]"
+                  >
+                    {clue.summary}
+                  </li>
+                ))}
+              </ul>
+            )}
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
                 type="button"

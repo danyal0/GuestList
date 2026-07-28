@@ -1064,6 +1064,7 @@ async function dispatchIntent(payload, analysis) {
       reactorPhone: payload.senderPhone,
       reactorLid: payload.senderLid ?? null,
       reactorJid: payload.senderJid ?? null,
+      reactorName: payload.senderName ?? null,
       status: analysis.intent === 'RSVP_YES' ? 'attending' : 'cancelled',
       confidence: analysis.confidence,
     });

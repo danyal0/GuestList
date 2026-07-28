@@ -1,6 +1,8 @@
 import {
   formatNamedProfileClueSummary,
+  isClaimableWhatsappProfile,
   isNamedPlaceholder,
+  isWhatsappOnlyUser,
   pickSurvivor,
 } from './whatsapp-identity';
 
@@ -88,6 +90,35 @@ describe('isNamedPlaceholder', () => {
       isNamedPlaceholder({
         email: 'named-khatera-abc123@wa.mkeplays.app',
         phone: null,
+        whatsappLid: null,
+        passwordHash: 'hash',
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('isWhatsappOnlyUser / isClaimableWhatsappProfile', () => {
+  it('treats passwordless phone/LID bridge rows as claimable', () => {
+    expect(
+      isWhatsappOnlyUser({
+        phone: '14145550100',
+        whatsappLid: '173709952336025',
+        passwordHash: null,
+      }),
+    ).toBe(true);
+    expect(
+      isClaimableWhatsappProfile({
+        phone: null,
+        whatsappLid: '173709952336025',
+        passwordHash: null,
+      }),
+    ).toBe(true);
+  });
+
+  it('does not treat password accounts as claimable', () => {
+    expect(
+      isClaimableWhatsappProfile({
+        phone: '14145550100',
         whatsappLid: null,
         passwordHash: 'hash',
       }),

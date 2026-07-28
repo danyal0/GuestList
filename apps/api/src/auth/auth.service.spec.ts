@@ -105,14 +105,61 @@ describe('AuthService', () => {
 
   describe('signup', () => {
     it('rejects duplicate phones with 409', async () => {
-      prisma.user.findUnique.mockResolvedValue(makeUser({ passwordHash: 'existing-hash' }));
+      prisma.user.findFirst.mockResolvedValue(makeUser({ passwordHash: 'existing-hash' }));
       await expect(
         service.signup({ name: 'Ada', phone: '14145550100', password: 'Str0ngPassw0rd!' }, {}),
       ).rejects.toThrow(ConflictException);
     });
 
+    it('rejects the same handset when WhatsApp stored it without country code', async () => {
+      prisma.user.findFirst.mockResolvedValue(
+        makeUser({ phone: '4145550100', passwordHash: 'existing-hash' }),
+      );
+      await expect(
+        service.signup({ name: 'Ada', phone: '1 (414) 555-0100', password: 'Str0ngPassw0rd!' }, {}),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('suggests linking a WhatsApp-only phone account instead of silently claiming it', async () => {
+      const waUser = makeUser({
+        id: 'wa_1',
+        phone: '4145550100',
+        passwordHash: null,
+        whatsappLid: '173709952336025',
+        name: 'WhatsApp 0100',
+      });
+      prisma.user.findFirst
+        .mockResolvedValueOnce(waUser) // phone match
+        .mockResolvedValue(null);
+      prisma.user.update.mockResolvedValue({ ...waUser, phone: null });
+      prisma.user.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve(makeUser({ ...data, id: 'usr_new' })),
+      );
+      prisma.user.findMany.mockResolvedValue([]);
+      prisma.rsvp.findMany.mockResolvedValue([]);
+
+      const result = await service.signup(
+        { name: 'Ada', phone: '14145550100', password: 'Str0ngPassw0rd!' },
+        {},
+      );
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'wa_1' },
+          data: { phone: null },
+        }),
+      );
+      expect(result.user.id).toBe('usr_new');
+      expect(result.linkSuggestions?.[0]).toMatchObject({
+        userId: 'wa_1',
+        match: 'phone',
+      });
+    });
+
     it('hashes the password with argon2 and issues tokens', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
       prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.findMany.mockResolvedValue([]);
       prisma.user.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
         Promise.resolve(makeUser(data)),
       );
@@ -132,7 +179,9 @@ describe('AuthService', () => {
     });
 
     it('never exposes the password hash in the response', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
       prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.findMany.mockResolvedValue([]);
       prisma.user.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
         Promise.resolve(makeUser(data)),
       );
@@ -147,7 +196,7 @@ describe('AuthService', () => {
 
   describe('login', () => {
     it('rejects unknown phones with a generic message', async () => {
-      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.findFirst.mockResolvedValue(null);
       await expect(service.login('14145550999', 'whatever', {})).rejects.toThrow(
         'Invalid phone or password',
       );
@@ -155,7 +204,7 @@ describe('AuthService', () => {
 
     it('rejects a wrong password with the same generic message', async () => {
       const passwordHash = await argon2.hash('correct-password');
-      prisma.user.findUnique.mockResolvedValue(makeUser({ passwordHash }));
+      prisma.user.findFirst.mockResolvedValue(makeUser({ passwordHash }));
       await expect(service.login('14145550100', 'wrong-password', {})).rejects.toThrow(
         'Invalid phone or password',
       );
@@ -163,7 +212,7 @@ describe('AuthService', () => {
 
     it('rejects suspended accounts even with valid credentials', async () => {
       const passwordHash = await argon2.hash('correct-password');
-      prisma.user.findUnique.mockResolvedValue(makeUser({ passwordHash, suspendedAt: new Date() }));
+      prisma.user.findFirst.mockResolvedValue(makeUser({ passwordHash, suspendedAt: new Date() }));
       await expect(service.login('14145550100', 'correct-password', {})).rejects.toThrow(
         ForbiddenException,
       );
@@ -171,7 +220,7 @@ describe('AuthService', () => {
 
     it('rejects soft-deleted accounts', async () => {
       const passwordHash = await argon2.hash('correct-password');
-      prisma.user.findUnique.mockResolvedValue(makeUser({ passwordHash, deletedAt: new Date() }));
+      prisma.user.findFirst.mockResolvedValue(makeUser({ passwordHash, deletedAt: new Date() }));
       await expect(service.login('14145550100', 'correct-password', {})).rejects.toThrow(
         UnauthorizedException,
       );
@@ -179,7 +228,7 @@ describe('AuthService', () => {
 
     it('returns the user and tokens for valid credentials', async () => {
       const passwordHash = await argon2.hash('correct-password');
-      prisma.user.findUnique.mockResolvedValue(makeUser({ passwordHash }));
+      prisma.user.findFirst.mockResolvedValue(makeUser({ passwordHash }));
 
       const result = await service.login('14145550100', 'correct-password', {});
       expect(result.user.phone).toBe('14145550100');
