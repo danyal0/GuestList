@@ -12,6 +12,7 @@ export interface MockDatabase {
   groups: JsonRow[];
   groupMembers: JsonRow[];
   follows: JsonRow[];
+  venues: JsonRow[];
   events: JsonRow[];
   rsvps: JsonRow[];
   conversations: JsonRow[];
@@ -53,6 +54,7 @@ const COLLECTION_MAP: Record<string, CollectionName> = {
   group: 'groups',
   groupMember: 'groupMembers',
   follow: 'follows',
+  venue: 'venues',
   event: 'events',
   rsvp: 'rsvps',
   conversation: 'conversations',
@@ -118,6 +120,7 @@ export class FileStore {
     }
 
     this.db = JSON.parse(readFileSync(this.path, 'utf8')) as MockDatabase;
+    if (!Array.isArray(this.db.venues)) this.db.venues = [];
     this.ensureWhatsappExtras();
     this.rebaseEventDates();
   }
@@ -128,6 +131,77 @@ export class FileStore {
    */
   private ensureWhatsappExtras(): void {
     let changed = false;
+    if (!Array.isArray(this.db.venues)) {
+      this.db.venues = [];
+      changed = true;
+    }
+
+    // Seed / refresh canonical venues from catalog JSON (idempotent by slug).
+    try {
+      const catalogPath = join(__dirname, '..', '..', 'data', 'venues-catalog.json');
+      const seedPath = join(process.cwd(), 'data', 'venues-catalog.json');
+      const pathToUse = existsSync(catalogPath)
+        ? catalogPath
+        : existsSync(seedPath)
+          ? seedPath
+          : join(process.cwd(), 'apps', 'api', 'data', 'venues-catalog.json');
+      if (existsSync(pathToUse)) {
+        const catalog = JSON.parse(readFileSync(pathToUse, 'utf8')) as Array<
+          Record<string, unknown>
+        >;
+        const now = new Date().toISOString();
+        for (const row of catalog) {
+          const slug = String(row.slug || '');
+          if (!slug) continue;
+          const existing = this.db.venues.find((v) => v.slug === slug);
+          if (existing) {
+            // Keep verified user edits; refresh catalog fields when source=catalog.
+            if (existing.source === 'catalog' || !existing.source) {
+              Object.assign(existing, {
+                name: row.name,
+                sport: row.sport,
+                city: row.city,
+                region: row.region,
+                country: row.country,
+                address: row.address,
+                latitude: row.latitude,
+                longitude: row.longitude,
+                aliases: row.aliases,
+                notes: row.notes ?? null,
+                source: 'catalog',
+                verifiedAt: now,
+                updatedAt: now,
+              });
+              changed = true;
+            }
+            continue;
+          }
+          this.db.venues.push({
+            id: `venue_${slug.replace(/-/g, '').slice(0, 16)}`,
+            slug,
+            name: row.name,
+            sport: row.sport,
+            city: row.city,
+            region: row.region,
+            country: row.country,
+            address: row.address,
+            latitude: row.latitude,
+            longitude: row.longitude,
+            aliases: row.aliases,
+            notes: row.notes ?? null,
+            source: 'catalog',
+            verifiedAt: now,
+            createdAt: now,
+            updatedAt: now,
+          });
+          changed = true;
+        }
+      }
+    } catch (err) {
+      // Non-fatal — venue catalog is best-effort in file mode.
+      console.warn('[file-store] venue catalog seed failed:', (err as Error).message);
+    }
+
     for (const user of this.db.users) {
       if (!('whatsappLid' in user)) {
         user.whatsappLid = null;

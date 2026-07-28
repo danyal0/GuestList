@@ -29,6 +29,52 @@ const {
   extractSenderIdentity,
 } = require('./group-resolve');
 
+function loadVenuesCatalog() {
+  const candidates = [
+    path.resolve(__dirname, '../../apps/api/data/venues-catalog.json'),
+    path.resolve(process.cwd(), 'apps/api/data/venues-catalog.json'),
+    path.resolve(process.cwd(), 'data/venues-catalog.json'),
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf8'));
+    } catch {
+      // continue
+    }
+  }
+  return [];
+}
+
+const VENUES_CATALOG = loadVenuesCatalog();
+
+function catalogPromptBlock() {
+  if (!VENUES_CATALOG.length) return '(no local catalog loaded)';
+  return VENUES_CATALOG.map(
+    (v) =>
+      `- slug=${v.slug} name="${v.name}" address="${v.address}" aliases=[${(v.aliases || []).join(', ')}] lat=${v.latitude} lng=${v.longitude}`,
+  ).join('\n');
+}
+
+function resolveCatalogFromClue(clue) {
+  if (!clue) return null;
+  const hay = String(clue).toLowerCase().replace(/\s+/g, ' ').trim();
+  let best = null;
+  for (const venue of VENUES_CATALOG) {
+    for (const alias of venue.aliases || []) {
+      if (alias.length < 4) continue;
+      if (hay.includes(alias)) {
+        const score = alias.length;
+        if (!best || score > best.score) best = { venue, score, matchedAlias: alias };
+      }
+    }
+    if (hay.includes(String(venue.name).toLowerCase())) {
+      const score = String(venue.name).length + 5;
+      if (!best || score > best.score) best = { venue, score, matchedAlias: venue.name };
+    }
+  }
+  return best;
+}
+
 // ─────────────────────────── Config ───────────────────────────
 
 const WHATSAPP_GROUP_NAME = process.env.WHATSAPP_GROUP_NAME || 'Tennis Group';
@@ -84,12 +130,16 @@ if (!XAI_API_KEY) {
  *     address: string | null,
  *     latitude: number | null,
  *     longitude: number | null,
+ *     venueSlug: string | null,
  *     instructions: string | null,
  *     notes: string | null,
  *     skillLevel: string | null,
  *     courtInfo: string | null,
  *     durationMinutes: number | null,
  *     timezone: string | null,
+ *     venueConfidence: number | null,
+ *     addressConfidence: number | null,
+ *     timeConfidence: number | null,
  *   }
  * }} AnalysisResult
  * @typedef {{
@@ -105,40 +155,40 @@ if (!XAI_API_KEY) {
  * }} AnalyzePayload
  */
 
-const SYSTEM_PROMPT = `You are an expert tennis match organizer for Milwaukee, Wisconsin (MKE Plays).
-Parse casual WhatsApp group chat about pickup tennis. Extract MAXIMUM structured detail.
+const SYSTEM_PROMPT = `You are a STRICT extractor for MKE Plays (Milwaukee tennis WhatsApp → events).
+Do NOT invent places, addresses, or instructions that are not supported by the message or the VERIFIED catalog below.
 
-Identify exactly one intent:
-- CREATE_EVENT: proposing / scheduling a new match or hitting session
-- RSVP_YES: confirming attendance for an existing match
-- RSVP_NO: cancelling or declining
-- IGNORE: banter / unrelated / insufficient signal
+Identify exactly one intent: CREATE_EVENT | RSVP_YES | RSVP_NO | IGNORE.
 
-Milwaukee context (always assume local unless another city is explicit):
-- Timezone: America/Chicago
-- "lake front" / "lakefront" / "lake park" / "bradford" → Lake Park Tennis Courts, 3233 N Lake Dr, Milwaukee, WI 53211 (lat 43.0665, lng -87.8708)
-- Veterans / McKinley → 1010 N Lincoln Memorial Dr, Milwaukee, WI 53202
-- Humboldt Park, Washington Park, Wilson Park, Oak Creek, Wauwatosa/Hart Park are also common
+VERIFIED Milwaukee tennis venues (ONLY use these for precise address/lat/lng unless the message itself contains a full street address with numbers):
+${catalogPromptBlock()}
 
-Time intelligence (critical):
-- Bare hours like "at 6", "6 tomorrow", "lets play at 6" for tennis almost always mean 6 PM, NOT 6 AM.
-- Prefer PM for hours 1–8 when am/pm is omitted. Morning only if explicit (6am, sunrise, before work, early morning).
-- suggestedTime MUST be ISO-8601 with America/Chicago offset when possible (e.g. 2026-07-29T18:00:00-05:00).
-- If only a weekday/relative day is given, resolve relative to "now" in America/Chicago.
+Critical local rules:
+- For TENNIS, casual "lake front" / "lakefront" means McKinley Tennis Courts (slug=mckinley-tennis-courts), NOT Lake Park.
+- "lake park" / Bradford / Kenwood → Lake Park Tennis Courts only when those words appear.
+- Timezone America/Chicago. Bare hours 1–8 without am/pm → prefer PM for tennis (6 → 6pm). Morning only if explicit.
+- suggestedTime: ISO-8601 with Chicago offset when possible.
 
-Extraction rules for CREATE_EVENT:
-- Fill every field you can infer. Invent a short clear title if needed (e.g. "Lakefront tennis tomorrow 6pm").
-- locationName = friendly court/park name; address = precise street address; include lat/lng when known from Milwaukee venues above.
-- instructions = meetup tips, what to bring, how to find courts, parking, "bring balls", etc. Infer sensible defaults if not stated (e.g. "Meet at the Lake Park courts near Bradford Beach. Bring a can of balls if you can.").
-- notes = anything else useful (weather contingency, open hit vs sets).
-- skillLevel if implied (beginner/intermediate/advanced/all levels).
-- courtInfo if mentioned (court #, indoor/outdoor, lights).
-- durationMinutes default 90 if unspecified.
-- Be slightly assertive on CREATE_EVENT when someone clearly wants to play; still IGNORE pure jokes.
+Strictness:
+- Set venueConfidence / addressConfidence / timeConfidence from 0–1 honestly.
+- If you cannot map to a catalog slug confidently, leave address/lat/lng null and set venueConfidence < 0.7.
+- instructions/notes/skillLevel/courtInfo: ONLY if present or strongly implied in the message. Do NOT invent meetup fluff.
+- title may be a short paraphrase of the ask.
 
-Return ONLY one minified JSON object. No markdown.
-Schema:
-{"intent":"CREATE_EVENT"|"RSVP_YES"|"RSVP_NO"|"IGNORE","confidence":0.0,"extractedData":{"title":null,"suggestedTime":null,"venue":null,"locationName":null,"address":null,"latitude":null,"longitude":null,"instructions":null,"notes":null,"skillLevel":null,"courtInfo":null,"durationMinutes":90,"timezone":"America/Chicago"}}`;
+Return ONLY minified JSON:
+{"intent":"CREATE_EVENT"|"RSVP_YES"|"RSVP_NO"|"IGNORE","confidence":0.0,"extractedData":{"title":null,"suggestedTime":null,"venue":null,"locationName":null,"address":null,"latitude":null,"longitude":null,"venueSlug":null,"instructions":null,"notes":null,"skillLevel":null,"courtInfo":null,"durationMinutes":null,"timezone":"America/Chicago","venueConfidence":0.0,"addressConfidence":0.0,"timeConfidence":0.0}}`;
+
+const REFINE_VENUE_PROMPT = `You refine ONLY venue/address for a Milwaukee tennis WhatsApp message.
+Use the VERIFIED catalog. For tennis, "lake front"/"lakefront" = McKinley Tennis Courts.
+If still unsure, return nulls and low confidence — never invent an address.
+Catalog:
+${catalogPromptBlock()}
+
+Return ONLY JSON:
+{"venueSlug":null,"locationName":null,"address":null,"latitude":null,"longitude":null,"venueConfidence":0.0,"addressConfidence":0.0,"rationale":""}`;
+
+const MIN_FIELD_CONFIDENCE = Number(process.env.WHATSAPP_MIN_FIELD_CONFIDENCE || '0.8');
+const MAX_AI_REFINES = Number(process.env.WHATSAPP_MAX_AI_REFINES || '2');
 
 // ─────────────────────────── xAI / Grok ───────────────────────────
 
@@ -168,7 +218,7 @@ async function analyzeWithxAI(payload) {
     hint:
       payload.kind === 'reaction'
         ? 'WhatsApp reaction on a prior message that may be a match invitation.'
-        : 'WhatsApp group message about tennis in Milwaukee. Extract max structured fields. Bare hour → prefer PM.',
+        : 'WhatsApp tennis message in Milwaukee. Be strict. lake front → McKinley. Bare hour → PM.',
   });
 
   let response;
@@ -182,7 +232,6 @@ async function analyzeWithxAI(payload) {
       body: JSON.stringify({
         model: XAI_MODEL,
         temperature: 0,
-        // Prefer structured JSON when the model/API supports it.
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
@@ -215,7 +264,150 @@ async function analyzeWithxAI(payload) {
     return ignoreResult(0);
   }
 
-  return parseAnalysisJson(rawContent);
+  let analysis = parseAnalysisJson(rawContent);
+  if (analysis.intent === 'CREATE_EVENT') {
+    analysis = await ensureVenueConfidence(payload, analysis);
+  }
+  return analysis;
+}
+
+/**
+ * Local catalog first; if still weak, ask Grok again (up to MAX_AI_REFINES).
+ * @param {AnalyzePayload} payload
+ * @param {AnalysisResult} analysis
+ * @returns {Promise<AnalysisResult>}
+ */
+async function ensureVenueConfidence(payload, analysis) {
+  const x = analysis.extractedData;
+  const clue = [payload.text, x.venue, x.locationName, x.venueSlug, x.address]
+    .filter(Boolean)
+    .join(' ');
+  const local = resolveCatalogFromClue(clue);
+  if (local) {
+    x.venueSlug = local.venue.slug;
+    x.locationName = local.venue.name;
+    x.address = local.venue.address;
+    x.latitude = local.venue.latitude;
+    x.longitude = local.venue.longitude;
+    x.venue = local.venue.name;
+    x.venueConfidence = 1;
+    x.addressConfidence = 1;
+    console.log(
+      `[whatsapp-bot] Catalog venue match alias="${local.matchedAlias}" → ${local.venue.slug}`,
+    );
+    return analysis;
+  }
+
+  for (let attempt = 1; attempt <= MAX_AI_REFINES; attempt += 1) {
+    const venueOk =
+      (x.venueConfidence ?? 0) >= MIN_FIELD_CONFIDENCE &&
+      Boolean(x.venueSlug || (x.address && /\d/.test(x.address)));
+    const addressOk =
+      (x.addressConfidence ?? 0) >= MIN_FIELD_CONFIDENCE &&
+      Boolean(x.address && /\d/.test(x.address));
+    if (venueOk && addressOk) break;
+
+    console.log(
+      `[whatsapp-bot] Venue/address confidence low (v=${x.venueConfidence} a=${x.addressConfidence}) — refine #${attempt}`,
+    );
+    const refined = await refineVenueWithxAI(payload, analysis);
+    if (!refined) break;
+    if (refined.venueSlug) x.venueSlug = refined.venueSlug;
+    if (refined.locationName) x.locationName = refined.locationName;
+    if (refined.address) x.address = refined.address;
+    if (refined.latitude != null) x.latitude = refined.latitude;
+    if (refined.longitude != null) x.longitude = refined.longitude;
+    if (refined.venueConfidence != null) x.venueConfidence = refined.venueConfidence;
+    if (refined.addressConfidence != null) {
+      x.addressConfidence = refined.addressConfidence;
+    }
+
+    const again = resolveCatalogFromClue(
+      [payload.text, x.venueSlug, x.locationName, x.address].filter(Boolean).join(' '),
+    );
+    if (again) {
+      x.venueSlug = again.venue.slug;
+      x.locationName = again.venue.name;
+      x.address = again.venue.address;
+      x.latitude = again.venue.latitude;
+      x.longitude = again.venue.longitude;
+      x.venueConfidence = 1;
+      x.addressConfidence = 1;
+      console.log(
+        `[whatsapp-bot] Catalog match after refine → ${again.venue.slug}`,
+      );
+      break;
+    }
+  }
+
+  return analysis;
+}
+
+/**
+ * @param {AnalyzePayload} payload
+ * @param {AnalysisResult} prior
+ */
+async function refineVenueWithxAI(payload, prior) {
+  const userContent = JSON.stringify({
+    message: payload.text,
+    priorExtract: {
+      venue: prior.extractedData.venue,
+      locationName: prior.extractedData.locationName,
+      venueSlug: prior.extractedData.venueSlug,
+      address: prior.extractedData.address,
+      venueConfidence: prior.extractedData.venueConfidence,
+      addressConfidence: prior.extractedData.addressConfidence,
+    },
+    reminder:
+      'lake front tennis in Milwaukee = McKinley Tennis Courts. Do not invent addresses.',
+  });
+
+  try {
+    const response = await fetch(XAI_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${XAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: XAI_MODEL,
+        temperature: 0,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: REFINE_VENUE_PROMPT },
+          { role: 'user', content: userContent },
+        ],
+      }),
+    });
+    if (!response.ok) {
+      console.warn(`[whatsapp-bot] refine HTTP ${response.status}`);
+      return null;
+    }
+    const data = await response.json();
+    const raw =
+      data?.choices?.[0]?.message?.content ??
+      data?.choices?.[0]?.text ??
+      '';
+    const cleaned = String(raw)
+      .trim()
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
+    const parsed = JSON.parse(cleaned);
+    return {
+      venueSlug: nullableString(parsed.venueSlug),
+      locationName: nullableString(parsed.locationName),
+      address: nullableString(parsed.address),
+      latitude: nullableNumber(parsed.latitude),
+      longitude: nullableNumber(parsed.longitude),
+      venueConfidence: clampConfidence(parsed.venueConfidence),
+      addressConfidence: clampConfidence(parsed.addressConfidence),
+      rationale: nullableString(parsed.rationale),
+    };
+  } catch (err) {
+    console.warn('[whatsapp-bot] refine failed:', err?.message || err);
+    return null;
+  }
 }
 
 /**
@@ -257,6 +449,10 @@ function parseAnalysisJson(raw) {
         courtInfo: nullableString(extracted.courtInfo),
         durationMinutes: nullableNumber(extracted.durationMinutes),
         timezone: nullableString(extracted.timezone) || 'America/Chicago',
+        venueSlug: nullableString(extracted.venueSlug),
+        venueConfidence: nullableNumber(extracted.venueConfidence),
+        addressConfidence: nullableNumber(extracted.addressConfidence),
+        timeConfidence: nullableNumber(extracted.timeConfidence),
       },
     };
   } catch (err) {
@@ -316,6 +512,10 @@ function ignoreResult(confidence) {
       courtInfo: null,
       durationMinutes: null,
       timezone: 'America/Chicago',
+      venueSlug: null,
+      venueConfidence: null,
+      addressConfidence: null,
+      timeConfidence: null,
     },
   };
 }
@@ -391,6 +591,10 @@ async function dispatchIntent(payload, analysis) {
       address: x.address,
       latitude: x.latitude,
       longitude: x.longitude,
+      venueSlug: x.venueSlug,
+      venueConfidence: x.venueConfidence,
+      addressConfidence: x.addressConfidence,
+      timeConfidence: x.timeConfidence,
       instructions: x.instructions,
       notes: x.notes,
       skillLevel: x.skillLevel,
@@ -412,7 +616,7 @@ async function dispatchIntent(payload, analysis) {
       return;
     }
     console.log(
-      `[whatsapp-bot] CREATE_EVENT extract title=${body.title} time=${body.suggestedTime} place=${body.locationName || body.venue} addr=${body.address}`,
+      `[whatsapp-bot] CREATE_EVENT title=${body.title} slug=${body.venueSlug} addr=${body.address} time=${body.suggestedTime} vConf=${body.venueConfidence} aConf=${body.addressConfidence}`,
     );
     await postToApp('/api/whatsapp/create-event', body);
     return;

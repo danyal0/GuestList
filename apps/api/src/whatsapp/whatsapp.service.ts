@@ -11,7 +11,7 @@ import { digitsOnly } from './whatsapp-bot.guard';
 import {
   buildEventDescription,
   preferPmForTennisHour,
-  resolveMilwaukeeVenue,
+  resolveCatalogVenue,
 } from './whatsapp-event-enrich';
 import {
   findOrLinkWhatsappUser,
@@ -38,6 +38,9 @@ export class WhatsappService {
     address?: string | null;
     latitude?: number | null;
     longitude?: number | null;
+    venueSlug?: string | null;
+    venueConfidence?: number | null;
+    addressConfidence?: number | null;
     instructions?: string | null;
     notes?: string | null;
     skillLevel?: string | null;
@@ -130,36 +133,64 @@ export class WhatsappService {
       deriveTitleFromMessage(messageBody) ||
       'Tennis match';
 
-    const venueClue = [body.locationName, body.venue, body.address, messageBody]
+    const venueClue = [
+      body.venueSlug,
+      body.locationName,
+      body.venue,
+      body.address,
+      messageBody,
+    ]
       .filter(Boolean)
       .join(' ');
-    const catalog = resolveMilwaukeeVenue(venueClue);
+    const catalogMatch = resolveCatalogVenue(venueClue);
+    const catalog = catalogMatch?.venue ?? null;
 
-    // Prefer curated Milwaukee court names over casual clues like "lake front".
+    // Strict: prefer verified catalog. Only keep free-form AI place when it
+    // includes a street address (digits) — never invent parks from thin air.
+    const aiAddress = body.address?.trim() || null;
+    const aiHasStreet = Boolean(aiAddress && /\d/.test(aiAddress));
+    const venueConfidence =
+      typeof body.venueConfidence === 'number' ? body.venueConfidence : null;
+    const addressConfidence =
+      typeof body.addressConfidence === 'number' ? body.addressConfidence : null;
+
+    let venueId: string | null = null;
+    if (catalog) {
+      const upserted = await this.upsertCatalogVenue(catalog);
+      venueId = upserted.id;
+    }
+
     const locationName =
-      catalog?.locationName ||
-      (body.locationName && body.locationName.trim()) ||
-      (body.venue && body.venue.trim()) ||
+      catalog?.name ||
+      (venueConfidence !== null && venueConfidence >= 0.85
+        ? body.locationName?.trim() || body.venue?.trim() || null
+        : null) ||
       process.env.WHATSAPP_DEFAULT_VENUE ||
       null;
 
     const address =
-      (body.address && body.address.trim()) ||
       catalog?.address ||
+      (aiHasStreet && (addressConfidence === null || addressConfidence >= 0.85)
+        ? aiAddress
+        : null) ||
       locationName;
 
     const latitude =
-      (typeof body.latitude === 'number' && Number.isFinite(body.latitude)
-        ? body.latitude
-        : null) ??
       catalog?.latitude ??
-      null;
+      (typeof body.latitude === 'number' &&
+      Number.isFinite(body.latitude) &&
+      addressConfidence !== null &&
+      addressConfidence >= 0.85
+        ? body.latitude
+        : null);
     const longitude =
-      (typeof body.longitude === 'number' && Number.isFinite(body.longitude)
-        ? body.longitude
-        : null) ??
       catalog?.longitude ??
-      null;
+      (typeof body.longitude === 'number' &&
+      Number.isFinite(body.longitude) &&
+      addressConfidence !== null &&
+      addressConfidence >= 0.85
+        ? body.longitude
+        : null);
 
     const timezone =
       (body.timezone && body.timezone.trim()) ||
@@ -181,15 +212,19 @@ export class WhatsappService {
     });
 
     const notes = [
+      // Only attach catalog notes (verified). Do not invent AI fluff.
       body.notes?.trim() || null,
       catalog?.notes || null,
     ]
       .filter(Boolean)
       .join('\n');
 
+    // Instructions: only from the message/AI when present — no invented defaults.
+    const instructions = body.instructions?.trim() || null;
+
     const description = buildEventDescription({
       messageBody,
-      instructions: body.instructions,
+      instructions,
       notes: notes || null,
       skillLevel: body.skillLevel,
       courtInfo: body.courtInfo,
@@ -198,13 +233,14 @@ export class WhatsappService {
     });
 
     this.logger.log(
-      `Creating event "${title}" @ ${locationName ?? 'n/a'} ${address ?? ''} ${startTime.toISOString()} (${timezone})`,
+      `Creating event "${title}" venue=${catalog?.slug ?? 'n/a'} @ ${locationName ?? 'n/a'} ${address ?? ''} ${startTime.toISOString()} (${timezone})`,
     );
 
     const event = await this.prisma.event.create({
       data: {
         groupId: group.id,
         hostId: host.id,
+        venueId,
         title,
         description,
         mode: 'IN_PERSON',
@@ -229,6 +265,7 @@ export class WhatsappService {
         latitude: true,
         longitude: true,
         timezone: true,
+        venueId: true,
         whatsappMessageId: true,
         hostId: true,
         groupId: true,
@@ -250,6 +287,63 @@ export class WhatsappService {
     });
 
     return { ok: true, event };
+  }
+
+  private async upsertCatalogVenue(catalog: {
+    slug: string;
+    name: string;
+    sport: string;
+    city: string;
+    region: string;
+    country: string;
+    address: string;
+    latitude: number;
+    longitude: number;
+    aliases: string[];
+    notes?: string | null;
+  }) {
+    const existing = await this.prisma.venue.findUnique({
+      where: { slug: catalog.slug },
+      select: { id: true },
+    });
+    if (existing) {
+      return this.prisma.venue.update({
+        where: { id: existing.id },
+        data: {
+          name: catalog.name,
+          sport: catalog.sport,
+          city: catalog.city,
+          region: catalog.region,
+          country: catalog.country,
+          address: catalog.address,
+          latitude: catalog.latitude,
+          longitude: catalog.longitude,
+          aliases: catalog.aliases,
+          notes: catalog.notes ?? null,
+          source: 'catalog',
+          verifiedAt: new Date(),
+        },
+        select: { id: true },
+      });
+    }
+    return this.prisma.venue.create({
+      data: {
+        slug: catalog.slug,
+        name: catalog.name,
+        sport: catalog.sport,
+        city: catalog.city,
+        region: catalog.region,
+        country: catalog.country,
+        address: catalog.address,
+        latitude: catalog.latitude,
+        longitude: catalog.longitude,
+        aliases: catalog.aliases,
+        notes: catalog.notes ?? null,
+        source: 'catalog',
+        verifiedAt: new Date(),
+      },
+      select: { id: true },
+    });
   }
 
   async rsvp(body: {
