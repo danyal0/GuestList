@@ -121,14 +121,24 @@ export class EventsService {
   }
 
   async list(dto: ListEventsDto, viewerId?: string) {
+    const status =
+      dto.status === EventStatus.CANCELLED
+        ? EventStatus.CANCELLED
+        : EventStatus.PUBLISHED;
+    // Cancelled events drop out of "upcoming" — keep them visible for ~60 days.
+    const defaultFrom =
+      status === EventStatus.CANCELLED
+        ? new Date(Date.now() - 60 * 24 * 60 * 60 * 1000)
+        : new Date();
+
     const where: Prisma.EventWhereInput = {
-      status: EventStatus.PUBLISHED,
+      status,
       parentEventId: null,
       group: { deletedAt: null, privacy: { not: GroupPrivacy.HIDDEN } },
       visibility: EventVisibility.PUBLIC,
       ...(dto.groupId ? { groupId: dto.groupId } : {}),
       ...(dto.mode ? { mode: dto.mode } : {}),
-      startTime: { gte: dto.from ?? new Date(), ...(dto.to ? { lte: dto.to } : {}) },
+      startTime: { gte: dto.from ?? defaultFrom, ...(dto.to ? { lte: dto.to } : {}) },
       ...(dto.q
         ? {
             OR: [
@@ -146,7 +156,11 @@ export class EventsService {
     }
 
     const orderBy: Prisma.EventOrderByWithRelationInput =
-      dto.sort === 'newest' ? { createdAt: 'desc' } : { startTime: 'asc' };
+      status === EventStatus.CANCELLED
+        ? { startTime: 'desc' }
+        : dto.sort === 'newest'
+          ? { createdAt: 'desc' }
+          : { startTime: 'asc' };
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.event.findMany({
@@ -163,7 +177,7 @@ export class EventsService {
     if (dto.radiusKm !== undefined && dto.lat !== undefined && dto.lng !== undefined) {
       results = results.filter((e) => e.distanceKm === undefined || e.distanceKm <= dto.radiusKm!);
     }
-    if (dto.sort === 'popular') {
+    if (dto.sort === 'popular' && status === EventStatus.PUBLISHED) {
       results.sort((a, b) => b.goingCount - a.goingCount);
     }
 
@@ -304,7 +318,10 @@ export class EventsService {
       where: {
         userId,
         status: { in: [RsvpStatus.GOING, RsvpStatus.INTERESTED, RsvpStatus.WAITLISTED] },
-        event: { startTime: { gte: new Date() }, status: EventStatus.PUBLISHED },
+        event: {
+          startTime: { gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) },
+          status: { in: [EventStatus.PUBLISHED, EventStatus.CANCELLED] },
+        },
       },
       include: { event: { include: eventListInclude } },
       orderBy: { event: { startTime: 'asc' } },
