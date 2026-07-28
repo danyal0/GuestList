@@ -13,6 +13,7 @@ import { NOTIFY_EVENT, NotifyPayload } from '../notifications/notification.event
 import { digitsOnly } from './whatsapp-bot.guard';
 import {
   buildEventDescription,
+  detectCancelCues,
   detectRescheduleCues,
   extractMapsUrls,
   inferEventCapacity,
@@ -44,6 +45,8 @@ export class WhatsappService {
     senderName?: string | null;
     messageBody?: string;
     whatsappMessageId?: string;
+    /** Original invite message id when this message is a WhatsApp reply. */
+    targetWhatsappMessageId?: string | null;
     title?: string | null;
     suggestedTime?: string | null;
     venue?: string | null;
@@ -67,11 +70,17 @@ export class WhatsappService {
     /** 0–1 from AI: host is changing an existing plan. */
     rescheduleConfidence?: number | null;
     isReschedule?: boolean | null;
+    /** 0–1 from AI/local: host is cancelling an existing plan. */
+    cancelConfidence?: number | null;
+    isCancel?: boolean | null;
   }) {
     const senderPhone = digitsOnly(body.senderPhone) ?? '';
     const senderLid = digitsOnly(body.senderLid) ?? '';
     const messageBody = (body.messageBody ?? '').trim();
     const whatsappMessageId = String(body.whatsappMessageId ?? '').trim();
+    const targetWhatsappMessageId = String(
+      body.targetWhatsappMessageId ?? '',
+    ).trim();
 
     if ((!senderPhone && !senderLid) || !whatsappMessageId) {
       throw new BadRequestException({
@@ -256,11 +265,19 @@ export class WhatsappService {
     });
 
     const mapsUrls = extractMapsUrls(messageBody);
+    const cancelCue = detectCancelCues(messageBody);
+    const cancelConfidence = Math.max(
+      cancelCue.confidence,
+      typeof body.cancelConfidence === 'number' ? body.cancelConfidence : 0,
+      body.isCancel ? 0.9 : 0,
+    );
     const rescheduleCue = detectRescheduleCues(messageBody);
     const rescheduleConfidence = Math.max(
       rescheduleCue.confidence,
       typeof body.rescheduleConfidence === 'number' ? body.rescheduleConfidence : 0,
       body.isReschedule ? 0.85 : 0,
+      // A reply to an existing invite with a new time is usually an update.
+      targetWhatsappMessageId && !cancelConfidence ? 0.75 : 0,
     );
 
     const description = buildEventDescription({
@@ -283,6 +300,7 @@ export class WhatsappService {
       endTime: true,
       previousStartTime: true,
       rescheduledAt: true,
+      status: true,
       locationName: true,
       address: true,
       latitude: true,
@@ -293,25 +311,78 @@ export class WhatsappService {
       whatsappMessageId: true,
       hostId: true,
       groupId: true,
+      description: true,
     } as const;
 
-    // Soft-match an existing plan when the host is rescheduling
-    // ("earlier than planned", "moved to 6", etc.).
-    if (rescheduleConfidence >= 0.7) {
-      const match = await this.findRescheduleTarget({
-        hostId: host.id,
-        groupId: group.id,
-        venueId,
-        locationName,
-        address,
-        startTime,
-        messageBody,
-        direction: rescheduleCue.direction,
-        timezone,
-      });
+    const matchOpts = {
+      hostId: host.id,
+      groupId: group.id,
+      targetWhatsappMessageId: targetWhatsappMessageId || null,
+      venueId,
+      locationName,
+      address,
+      startTime,
+      messageBody,
+      direction: rescheduleCue.direction,
+      timezone,
+      preferSingleCandidate: cancelConfidence >= 0.7,
+    };
+
+    // Cancel wins over create/reschedule — even when the message restates time/venue.
+    if (cancelConfidence >= 0.7) {
+      const match = await this.findUpdateTarget(matchOpts);
       if (match) {
         this.logger.log(
-          `Reschedule match event=${match.id} score=${match.score.toFixed(2)} cue="${rescheduleCue.matchedPhrase ?? 'ai'}" → ${startTime.toISOString()}`,
+          `Cancel match event=${match.id} score=${match.score.toFixed(2)} cue="${cancelCue.matchedPhrase ?? 'ai'}" via=${targetWhatsappMessageId ? 'reply' : 'soft'}`,
+        );
+        const updatedDescription = appendWhatsappUpdate(
+          match.description,
+          messageBody,
+          whatsappMessageId,
+          mapsUrls,
+        );
+        const cancelled = await this.prisma.event.update({
+          where: { id: match.id },
+          data: {
+            status: 'CANCELLED',
+            description: updatedDescription,
+          },
+          select: eventSelect,
+        });
+        await this.notifyEventCancelled(cancelled, {
+          message: `"${cancelled.title}" has been cancelled via WhatsApp.`,
+          excludeUserId: host.id,
+        });
+        this.eventEmitter.emit('realtime.event.updated', {
+          eventId: cancelled.id,
+          event: cancelled,
+        });
+        return {
+          ok: true,
+          cancelled: true,
+          event: cancelled,
+          namedAttendees: [],
+          capacity: cancelled.capacity,
+        };
+      }
+      this.logger.log(
+        `Cancel cues present (conf=${cancelConfidence}) but no matching event — not creating a new one`,
+      );
+      return {
+        ok: true,
+        cancelled: false,
+        reason: 'no_matching_event',
+        event: null,
+      };
+    }
+
+    // Soft-match an existing plan when the host is rescheduling
+    // ("earlier than planned", "moved to 6", reply to invite, etc.).
+    if (rescheduleConfidence >= 0.7 || targetWhatsappMessageId) {
+      const match = await this.findUpdateTarget(matchOpts);
+      if (match) {
+        this.logger.log(
+          `Reschedule match event=${match.id} score=${match.score.toFixed(2)} cue="${rescheduleCue.matchedPhrase ?? (targetWhatsappMessageId ? 'reply' : 'ai')}" → ${startTime.toISOString()}`,
         );
         const previousStart = match.startTime;
         const updatedDescription = appendWhatsappUpdate(
@@ -372,9 +443,11 @@ export class WhatsappService {
           capacity: updated.capacity,
         };
       }
-      this.logger.log(
-        `Reschedule cues present (conf=${rescheduleConfidence}) but no strong candidate — creating new event`,
-      );
+      if (rescheduleConfidence >= 0.7) {
+        this.logger.log(
+          `Reschedule cues present (conf=${rescheduleConfidence}) but no strong candidate — creating new event`,
+        );
+      }
     }
 
     this.logger.log(
@@ -460,9 +533,10 @@ export class WhatsappService {
     return autoRsvped;
   }
 
-  private async findRescheduleTarget(opts: {
+  private async findUpdateTarget(opts: {
     hostId: string;
     groupId: string;
+    targetWhatsappMessageId?: string | null;
     venueId: string | null;
     locationName: string | null;
     address: string | null;
@@ -470,7 +544,59 @@ export class WhatsappService {
     messageBody: string;
     direction: ReturnType<typeof detectRescheduleCues>['direction'];
     timezone: string;
+    /** When cancelling, accept a single clear host event more readily. */
+    preferSingleCandidate?: boolean;
   }): Promise<(RescheduleCandidate & { score: number }) | null> {
+    if (opts.targetWhatsappMessageId) {
+      const byReply = await this.prisma.event.findFirst({
+        where: {
+          whatsappMessageId: opts.targetWhatsappMessageId,
+          status: 'PUBLISHED',
+          hostId: opts.hostId,
+        },
+        select: {
+          id: true,
+          title: true,
+          startTime: true,
+          endTime: true,
+          locationName: true,
+          address: true,
+          venueId: true,
+          whatsappMessageId: true,
+          description: true,
+          capacity: true,
+        },
+      });
+      if (byReply) {
+        return { ...byReply, score: 1 };
+      }
+      // Description may reference the original invite id after prior updates.
+      const byDesc = await this.prisma.event.findMany({
+        where: {
+          hostId: opts.hostId,
+          groupId: opts.groupId,
+          status: 'PUBLISHED',
+          description: { contains: opts.targetWhatsappMessageId },
+        },
+        select: {
+          id: true,
+          title: true,
+          startTime: true,
+          endTime: true,
+          locationName: true,
+          address: true,
+          venueId: true,
+          whatsappMessageId: true,
+          description: true,
+          capacity: true,
+        },
+        take: 5,
+      });
+      if (byDesc.length === 1) {
+        return { ...byDesc[0]!, score: 0.98 };
+      }
+    }
+
     const windowStart = new Date(Date.now() - 2 * 60 * 60 * 1000);
     const windowEnd = new Date(Date.now() + 48 * 60 * 60 * 1000);
     const candidates = await this.prisma.event.findMany({
@@ -496,6 +622,10 @@ export class WhatsappService {
       take: 25,
     });
 
+    if (opts.preferSingleCandidate && candidates.length === 1) {
+      return { ...candidates[0]!, score: 0.85 };
+    }
+
     const scored = candidates
       .map((c) => ({
         ...c,
@@ -512,15 +642,62 @@ export class WhatsappService {
       .sort((a, b) => b.score - a.score);
 
     const best = scored[0];
-    if (!best || best.score < 0.7) return null;
+    const minScore = opts.preferSingleCandidate ? 0.55 : 0.7;
+    if (!best || best.score < minScore) return null;
     const second = scored[1];
-    if (second && best.score - second.score < 0.08 && second.score >= 0.7) {
+    if (
+      second &&
+      best.score - second.score < 0.08 &&
+      second.score >= minScore
+    ) {
       this.logger.warn(
-        `Ambiguous reschedule candidates ${best.id} (${best.score}) vs ${second.id} (${second.score}) — skipping update`,
+        `Ambiguous update candidates ${best.id} (${best.score}) vs ${second.id} (${second.score}) — skipping update`,
       );
       return null;
     }
     return best;
+  }
+
+  private async notifyEventCancelled(
+    event: {
+      id: string;
+      title: string;
+      startTime: Date;
+      locationName: string | null;
+    },
+    opts: { message: string; excludeUserId?: string },
+  ): Promise<void> {
+    const rsvps = await this.prisma.rsvp.findMany({
+      where: {
+        eventId: event.id,
+        status: {
+          in: [RsvpStatus.GOING, RsvpStatus.WAITLISTED, RsvpStatus.INTERESTED],
+        },
+        ...(opts.excludeUserId ? { userId: { not: opts.excludeUserId } } : {}),
+      },
+      select: { userId: true },
+    });
+
+    for (const rsvp of rsvps) {
+      this.eventEmitter.emit(NOTIFY_EVENT, {
+        userId: rsvp.userId,
+        type: NotificationType.EVENT_CANCELLED,
+        payload: {
+          eventId: event.id,
+          eventTitle: event.title,
+          message: opts.message,
+          startTime: event.startTime.toISOString(),
+          locationName: event.locationName,
+        },
+        email: {
+          subject: `Cancelled: ${event.title}`,
+          heading: 'Event cancelled',
+          body: opts.message,
+          ctaLabel: 'View event',
+          ctaPath: `/events/${event.id}`,
+        },
+      } satisfies NotifyPayload);
+    }
   }
 
   private async notifyEventUpdated(

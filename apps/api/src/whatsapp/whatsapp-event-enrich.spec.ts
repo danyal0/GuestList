@@ -1,4 +1,5 @@
 import {
+  detectCancelCues,
   detectRescheduleCues,
   extractMapsUrls,
   extractNamedAttendeesFromMessage,
@@ -159,5 +160,34 @@ describe('detectRescheduleCues / scoreRescheduleCandidate', () => {
     expect(extractNamedAttendeesFromMessage(sample)).toEqual(
       expect.arrayContaining(['Khatera']),
     );
+  });
+});
+
+describe('detectCancelCues', () => {
+  it('flags cancelled with restated time/venue as a cancel (not a create)', () => {
+    const cue = detectCancelCues(
+      'Atwater 6pm is cancelled — sorry everyone',
+    );
+    expect(cue.matched).toBe(true);
+    expect(cue.confidence).toBeGreaterThanOrEqual(0.9);
+    expect(cue.matchedPhrase?.toLowerCase()).toMatch(/cancell?ed/);
+  });
+
+  it('flags called off / not happening', () => {
+    expect(detectCancelCues('tennis tonight is called off').matched).toBe(true);
+    expect(detectCancelCues('not happening today').matched).toBe(true);
+    expect(detectCancelCues('rained out at McKinley').matched).toBe(true);
+  });
+
+  it('does not treat a normal invite as cancel', () => {
+    expect(
+      detectCancelCues('Tennis at Atwater tomorrow 6pm — everyone welcome').matched,
+    ).toBe(false);
+  });
+
+  it('cancel cues beat reschedule when both appear', () => {
+    const text = 'the 6pm Atwater game earlier than planned is cancelled';
+    expect(detectCancelCues(text).matched).toBe(true);
+    expect(detectRescheduleCues(text).matched).toBe(true);
   });
 });

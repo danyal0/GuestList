@@ -149,6 +149,8 @@ if (!XAI_API_KEY) {
  *     namedAttendees: string[] | null,
  *     isReschedule: boolean | null,
  *     rescheduleConfidence: number | null,
+ *     isCancel: boolean | null,
+ *     cancelConfidence: number | null,
  *     timezone: string | null,
  *     venueConfidence: number | null,
  *     addressConfidence: number | null,
@@ -165,6 +167,7 @@ if (!XAI_API_KEY) {
  *   senderName?: string | null,
  *   whatsappMessageId: string,
  *   targetMessageId: string | null,
+ *   quotedText?: string | null,
  * }} AnalyzePayload
  */
 
@@ -172,7 +175,8 @@ const SYSTEM_PROMPT = `You are a STRICT extractor for MKE Plays (Milwaukee tenni
 Do NOT invent places, addresses, or instructions that are not supported by the message or the VERIFIED catalog below.
 
 Identify exactly one intent: CREATE_EVENT | RSVP_YES | RSVP_NO | IGNORE.
-CREATE_EVENT also covers reschedules of an existing match (still CREATE_EVENT; set isReschedule + rescheduleConfidence).
+CREATE_EVENT also covers reschedules AND cancellations of an existing match (still CREATE_EVENT; set isReschedule/isCancel + confidence).
+If quotedText is present, this message is a WhatsApp reply — prefer updating/cancelling that prior invite over creating a new event.
 
 WORD-LEVEL ANALYSIS (mandatory for CREATE_EVENT):
 Break the message into tokens/phrases and assign each a role when possible:
@@ -180,6 +184,7 @@ Break the message into tokens/phrases and assign each a role when possible:
 - time / day cue ("about 6 pm")
 - place / venue cue ("Atwater Elementary School in Shorewood")
 - reschedule cue ("earlier than planned", "later than planned", "moved to", "new time", "instead of") → isReschedule=true
+- cancel cue ("cancelled", "canceled", "cancel", "called off", "not happening", "rain out") → isCancel=true (CANCEL BEATS CREATE even if time/venue are restated)
 - capacity cue (singles=2, doubles=4, "need 3", "4 people", N courts → N×4)
 - skill / format / court info
 - maps links (maps.app.goo.gl / google maps) — keep in notes if useful; do not invent coordinates from them
@@ -197,15 +202,16 @@ Critical local rules:
 - capacity: prefer explicit party size from the message; else singles/doubles; else venue defaultCapacity from catalog. Set capacityConfidence honestly.
 - namedAttendees: first names of people the message says are going/playing (e.g. "Khatera and I are going" → ["Khatera"]). Do NOT include the sender.
 - isReschedule / rescheduleConfidence: set high when the host is changing a prior plan ("earlier than planned" is a strong clue). The API will update the existing event and notify RSVPs.
+- isCancel / cancelConfidence: set high when the host is calling off a prior plan. Do NOT create a new event for a cancel message. Prefer CREATE_EVENT+isCancel over IGNORE when cancel words are present.
 
 Strictness:
-- Set venueConfidence / addressConfidence / timeConfidence / capacityConfidence / rescheduleConfidence from 0–1 honestly.
+- Set venueConfidence / addressConfidence / timeConfidence / capacityConfidence / rescheduleConfidence / cancelConfidence from 0–1 honestly.
 - If you cannot map to a catalog slug confidently, leave address/lat/lng null and set venueConfidence < 0.7.
 - instructions/notes/skillLevel/courtInfo: ONLY if present or strongly implied in the message. Do NOT invent meetup fluff.
 - title may be a short paraphrase of the ask.
 
 Return ONLY minified JSON:
-{"intent":"CREATE_EVENT"|"RSVP_YES"|"RSVP_NO"|"IGNORE","confidence":0.0,"extractedData":{"title":null,"suggestedTime":null,"venue":null,"locationName":null,"address":null,"latitude":null,"longitude":null,"venueSlug":null,"instructions":null,"notes":null,"skillLevel":null,"courtInfo":null,"durationMinutes":null,"capacity":null,"capacityConfidence":0.0,"namedAttendees":[],"isReschedule":false,"rescheduleConfidence":0.0,"timezone":"America/Chicago","venueConfidence":0.0,"addressConfidence":0.0,"timeConfidence":0.0}}`;
+{"intent":"CREATE_EVENT"|"RSVP_YES"|"RSVP_NO"|"IGNORE","confidence":0.0,"extractedData":{"title":null,"suggestedTime":null,"venue":null,"locationName":null,"address":null,"latitude":null,"longitude":null,"venueSlug":null,"instructions":null,"notes":null,"skillLevel":null,"courtInfo":null,"durationMinutes":null,"capacity":null,"capacityConfidence":0.0,"namedAttendees":[],"isReschedule":false,"rescheduleConfidence":0.0,"isCancel":false,"cancelConfidence":0.0,"timezone":"America/Chicago","venueConfidence":0.0,"addressConfidence":0.0,"timeConfidence":0.0}}`;
 
 const REFINE_VENUE_PROMPT = `You refine ONLY venue/address for a Milwaukee tennis WhatsApp message.
 Use the VERIFIED catalog. For tennis, "lake front"/"lakefront" = McKinley Tennis Courts.
@@ -242,12 +248,16 @@ async function analyzeWithxAI(payload) {
     kind: payload.kind,
     text: payload.text,
     reaction: payload.reaction,
+    quotedText: payload.quotedText ?? null,
+    isReply: Boolean(payload.targetMessageId),
     nowAmericaChicago: nowChi,
     locale: 'Milwaukee, WI',
     hint:
       payload.kind === 'reaction'
         ? 'WhatsApp reaction on a prior message that may be a match invitation.'
-        : 'WhatsApp tennis message in Milwaukee. Be strict. lake front → McKinley. Bare hour → PM.',
+        : payload.targetMessageId
+          ? 'WhatsApp reply to a prior tennis invite. Prefer cancel/reschedule of that invite over creating a new event. lake front → McKinley. Bare hour → PM.'
+          : 'WhatsApp tennis message in Milwaukee. Be strict. lake front → McKinley. Bare hour → PM. Cancel words → isCancel (do not create).',
   });
 
   let response;
@@ -482,6 +492,8 @@ function parseAnalysisJson(raw) {
         namedAttendees: nullableStringArray(extracted.namedAttendees),
         isReschedule: Boolean(extracted.isReschedule),
         rescheduleConfidence: nullableNumber(extracted.rescheduleConfidence),
+        isCancel: Boolean(extracted.isCancel),
+        cancelConfidence: nullableNumber(extracted.cancelConfidence),
         timezone: nullableString(extracted.timezone) || 'America/Chicago',
         venueSlug: nullableString(extracted.venueSlug),
         venueConfidence: nullableNumber(extracted.venueConfidence),
@@ -614,6 +626,49 @@ function detectRescheduleCuesLocal(text) {
   return { matched: false, confidence: 0 };
 }
 
+function detectCancelCuesLocal(text) {
+  if (!text) return { matched: false, confidence: 0 };
+  const patterns = [
+    /\b(?:is\s+)?cancell?ed\b/i,
+    /\bcancell?ing\b/i,
+    /\bcancel\b/i,
+    /\bcalled\s+off\b/i,
+    /\bcall\s+it\s+off\b/i,
+    /\bnot\s+happening\b/i,
+    /\bno\s+longer\s+happening\b/i,
+    /\brain(?:ed)?\s*out\b/i,
+    /\bwon'?t\s+(?:be\s+)?(?:happening|playing|making\s+it)\b/i,
+    /\bscrap(?:ping|ped)?\s+(?:the\s+)?(?:game|match|plan|session)\b/i,
+  ];
+  for (const re of patterns) {
+    if (re.test(text)) return { matched: true, confidence: 0.95 };
+  }
+  return { matched: false, confidence: 0 };
+}
+
+/**
+ * Resolve the WhatsApp message this one replies to (quoted/referenced).
+ * @param {any} message
+ * @returns {Promise<{ id: string | null, text: string | null }>}
+ */
+async function resolveQuotedMessage(message) {
+  try {
+    if (!message?.hasQuotedMsg) return { id: null, text: null };
+    const quoted = await message.getQuotedMessage();
+    if (!quoted) return { id: null, text: null };
+    return {
+      id: serializeWhatsappMessageId(quoted),
+      text: typeof quoted.body === 'string' ? quoted.body : null,
+    };
+  } catch (err) {
+    console.warn(
+      '[whatsapp-bot] Failed to read quoted/replied message:',
+      err?.message || err,
+    );
+    return { id: null, text: null };
+  }
+}
+
 /** Infer capacity when AI omits it, using venue catalog defaults. */
 function inferCapacityLocal(extracted, messageText) {
   if (typeof extracted.capacity === 'number' && extracted.capacity >= 1) {
@@ -682,6 +737,8 @@ function ignoreResult(confidence) {
       namedAttendees: [],
       isReschedule: false,
       rescheduleConfidence: null,
+      isCancel: false,
+      cancelConfidence: null,
       timezone: 'America/Chicago',
       venueSlug: null,
       venueConfidence: null,
@@ -739,6 +796,67 @@ async function postToApp(path, body) {
  * @param {AnalysisResult} analysis
  */
 async function dispatchIntent(payload, analysis) {
+  const localCancel = detectCancelCuesLocal(payload.text);
+  const localReschedule = detectRescheduleCuesLocal(payload.text);
+  const clearCancel =
+    localCancel.matched ||
+    Boolean(analysis.extractedData?.isCancel) ||
+    (typeof analysis.extractedData?.cancelConfidence === 'number' &&
+      analysis.extractedData.cancelConfidence >= 0.7);
+  const clearReschedule =
+    localReschedule.matched ||
+    Boolean(analysis.extractedData?.isReschedule) ||
+    (typeof analysis.extractedData?.rescheduleConfidence === 'number' &&
+      analysis.extractedData.rescheduleConfidence >= 0.7);
+  const replyTarget = Boolean(payload.targetMessageId);
+
+  // Cancel / clear reschedule should not die on low AI confidence.
+  // Replies only bypass when cancel/reschedule cues exist, or AI already chose CREATE_EVENT.
+  const shouldBypassConfidence =
+    clearCancel ||
+    clearReschedule ||
+    (replyTarget &&
+      (clearCancel ||
+        clearReschedule ||
+        analysis.intent === 'CREATE_EVENT'));
+
+  if (
+    (analysis.intent === 'IGNORE' || analysis.confidence < MIN_CONFIDENCE) &&
+    shouldBypassConfidence
+  ) {
+    console.log(
+      `[whatsapp-bot] Overriding low-confidence/IGNORE → CREATE_EVENT (cancel=${clearCancel} reschedule=${clearReschedule} reply=${replyTarget} ai=${analysis.intent}/${analysis.confidence})`,
+    );
+    analysis = {
+      ...analysis,
+      intent: 'CREATE_EVENT',
+      confidence: Math.max(analysis.confidence, 0.9),
+      extractedData: {
+        ...analysis.extractedData,
+        isCancel: clearCancel || analysis.extractedData.isCancel,
+        cancelConfidence: Math.max(
+          localCancel.confidence,
+          typeof analysis.extractedData.cancelConfidence === 'number'
+            ? analysis.extractedData.cancelConfidence
+            : 0,
+          clearCancel ? 0.9 : 0,
+        ),
+        isReschedule:
+          !clearCancel &&
+          (clearReschedule || analysis.extractedData.isReschedule || replyTarget),
+        rescheduleConfidence: clearCancel
+          ? 0
+          : Math.max(
+              localReschedule.confidence,
+              typeof analysis.extractedData.rescheduleConfidence === 'number'
+                ? analysis.extractedData.rescheduleConfidence
+                : 0,
+              clearReschedule || replyTarget ? 0.85 : 0,
+            ),
+      },
+    };
+  }
+
   if (analysis.intent === 'IGNORE' || analysis.confidence < MIN_CONFIDENCE) {
     console.log(
       `[whatsapp-bot] Ignoring (intent=${analysis.intent}, confidence=${analysis.confidence})`,
@@ -760,11 +878,16 @@ async function dispatchIntent(payload, analysis) {
       );
     });
     const capacity = inferCapacityLocal(x, payload.text);
-    const localReschedule = detectRescheduleCuesLocal(payload.text);
+    const cancelConfidence = Math.max(
+      localCancel.confidence,
+      typeof x.cancelConfidence === 'number' ? x.cancelConfidence : 0,
+      x.isCancel ? 0.9 : 0,
+    );
     const rescheduleConfidence = Math.max(
       localReschedule.confidence,
       typeof x.rescheduleConfidence === 'number' ? x.rescheduleConfidence : 0,
       x.isReschedule ? 0.85 : 0,
+      payload.targetMessageId && cancelConfidence < 0.7 ? 0.75 : 0,
     );
     const body = {
       senderPhone: payload.senderPhone,
@@ -773,6 +896,7 @@ async function dispatchIntent(payload, analysis) {
       senderName: payload.senderName ?? null,
       messageBody: payload.text ?? '',
       whatsappMessageId: payload.whatsappMessageId,
+      targetWhatsappMessageId: payload.targetMessageId,
       title: x.title,
       suggestedTime: x.suggestedTime,
       venue: x.venue,
@@ -792,8 +916,12 @@ async function dispatchIntent(payload, analysis) {
       capacity,
       capacityConfidence: x.capacityConfidence,
       namedAttendees,
-      isReschedule: Boolean(x.isReschedule) || localReschedule.matched,
-      rescheduleConfidence,
+      isReschedule:
+        cancelConfidence < 0.7 &&
+        (Boolean(x.isReschedule) || localReschedule.matched || Boolean(payload.targetMessageId)),
+      rescheduleConfidence: cancelConfidence >= 0.7 ? 0 : rescheduleConfidence,
+      isCancel: cancelConfidence >= 0.7 || Boolean(x.isCancel) || localCancel.matched,
+      cancelConfidence,
       timezone: x.timezone || 'America/Chicago',
       confidence: analysis.confidence,
     };
@@ -810,7 +938,7 @@ async function dispatchIntent(payload, analysis) {
       return;
     }
     console.log(
-      `[whatsapp-bot] CREATE_EVENT title=${body.title} slug=${body.venueSlug} capacity=${body.capacity} attendees=${JSON.stringify(body.namedAttendees)} reschedule=${body.isReschedule}/${body.rescheduleConfidence} addr=${body.address} time=${body.suggestedTime} vConf=${body.venueConfidence} aConf=${body.addressConfidence}`,
+      `[whatsapp-bot] CREATE_EVENT title=${body.title} slug=${body.venueSlug} capacity=${body.capacity} attendees=${JSON.stringify(body.namedAttendees)} cancel=${body.isCancel}/${body.cancelConfidence} reschedule=${body.isReschedule}/${body.rescheduleConfidence} replyTo=${body.targetWhatsappMessageId ?? 'n/a'} addr=${body.address} time=${body.suggestedTime} vConf=${body.venueConfidence} aConf=${body.addressConfidence}`,
     );
     await postToApp('/api/whatsapp/create-event', body);
     return;
@@ -1163,6 +1291,8 @@ client.on('message', async (message) => {
       return;
     }
 
+    const quoted = await resolveQuotedMessage(message);
+
     /** @type {AnalyzePayload} */
     const payload = {
       kind: 'message',
@@ -1173,11 +1303,12 @@ client.on('message', async (message) => {
       senderJid: identity.senderJid,
       senderName,
       whatsappMessageId,
-      targetMessageId: null,
+      targetMessageId: quoted.id,
+      quotedText: quoted.text,
     };
 
     console.log(
-      `[whatsapp-bot] Message lid=${senderLid ?? 'n/a'} phone=${senderPhone ?? 'n/a'}: ${(payload.text || '').slice(0, 120)}`,
+      `[whatsapp-bot] Message lid=${senderLid ?? 'n/a'} phone=${senderPhone ?? 'n/a'} replyTo=${quoted.id ?? 'n/a'}: ${(payload.text || '').slice(0, 120)}`,
     );
 
     const analysis = await analyzeWithxAI(payload);

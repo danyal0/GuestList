@@ -25,6 +25,11 @@ export class WhatsappCreateEventDto {
   @IsString()
   whatsappMessageId?: string;
 
+  /** WhatsApp id of the message this one replies to (original invite). */
+  @IsOptional()
+  @IsString()
+  targetWhatsappMessageId?: string | null;
+
   @IsOptional()
   @IsString()
   title?: string | null;
@@ -109,6 +114,14 @@ export class WhatsappCreateEventDto {
   @IsOptional()
   @IsBoolean()
   isReschedule?: boolean | null;
+
+  @IsOptional()
+  @IsNumber()
+  cancelConfidence?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isCancel?: boolean | null;
 
   @IsOptional()
   @IsString()
