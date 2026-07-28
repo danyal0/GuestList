@@ -1,0 +1,19 @@
+{
+  "name": "gatherly-whatsapp-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Long-running WhatsApp ↔ Gatherly bridge (NOT part of the Railway web/API service)",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "postinstall": "node -e \"console.log('[whatsapp] Install complete. Run: npm run whatsapp:bot')\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.26.0"
+  }
+}

@@ -11,6 +11,10 @@
 
 'use strict';
 
+const path = require('path');
+
+// Prefer repo-root `.env`, then `scripts/whatsapp/.env`.
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 require('dotenv').config();
 
 const { Client, LocalAuth } = require('whatsapp-web.js');
@@ -358,7 +362,7 @@ function intentFromReactionEmoji(emoji) {
 const client = new Client({
   authStrategy: new LocalAuth({
     clientId: process.env.WHATSAPP_CLIENT_ID || 'gatherly-tennis-bot',
-    dataPath: process.env.WHATSAPP_AUTH_PATH || './.wwebjs_auth',
+    dataPath: process.env.WHATSAPP_AUTH_PATH || path.resolve(__dirname, '.wwebjs_auth'),
   }),
   puppeteer: {
     headless: true,
