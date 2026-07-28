@@ -75,7 +75,34 @@ export class AuthService {
         : null;
 
     const existingPhone = await this.prisma.user.findUnique({ where: { phone } });
-    if (existingPhone) throw new ConflictException('An account with this phone already exists');
+    if (existingPhone) {
+      // Claim a WhatsApp-auto-provisioned account (no password yet).
+      if (!existingPhone.passwordHash && !existingPhone.deletedAt) {
+        const passwordHash = await argon2.hash(input.password);
+        const user = await this.prisma.user.update({
+          where: { id: existingPhone.id },
+          data: {
+            name: input.name,
+            passwordHash,
+            email: email ?? existingPhone.email,
+            deletedAt: null,
+            suspendedAt: null,
+          },
+        });
+        await this.prisma.activityLog.create({
+          data: { userId: user.id, type: ActivityType.SIGNUP },
+        });
+        if (email) await this.sendVerificationEmail(user);
+        await this.auditService.log({
+          actorId: user.id,
+          action: 'auth.signup_claim_whatsapp',
+          ip: meta.ip,
+        });
+        const tokens = await this.tokenService.issuePair(user, meta);
+        return { user: this.toPublicUser(user), tokens };
+      }
+      throw new ConflictException('An account with this phone already exists');
+    }
 
     if (email) {
       const existingEmail = await this.prisma.user.findUnique({ where: { email } });

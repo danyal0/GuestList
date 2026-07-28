@@ -60,7 +60,14 @@ export class WhatsappService {
       senderLid: senderLid || null,
       senderJid: body.senderJid,
       senderName: body.senderName,
+      autoCreate: true,
     });
+
+    if (host) {
+      this.logger.log(
+        `Resolved host ${host.id} phone=${host.phone ?? 'n/a'} lid=${host.whatsappLid ?? 'n/a'}`,
+      );
+    }
 
     if (!host && process.env.WHATSAPP_DEFAULT_HOST_USER_ID) {
       host = await this.prisma.user.findFirst({
