@@ -145,3 +145,45 @@ test('regression: getChats throwing must not prevent processing when learning fr
   assert.equal(result.ok, true);
   assert.equal(result.groupId, '120363frommessage@g.us');
 });
+
+test('serializeWhatsappMessageId prefers _serialized and composes fallback', () => {
+  const {
+    serializeWhatsappMessageId,
+    extractSenderIdentity,
+  } = require('./group-resolve');
+
+  assert.equal(
+    serializeWhatsappMessageId({
+      id: { _serialized: 'true_120363@g.us_ABCD' },
+    }),
+    'true_120363@g.us_ABCD',
+  );
+
+  assert.equal(
+    serializeWhatsappMessageId({
+      id: { fromMe: false, remote: '120363@g.us', id: '3EB0XYZ' },
+    }),
+    'false_120363@g.us_3EB0XYZ',
+  );
+
+  assert.equal(serializeWhatsappMessageId({ id: {} }), null);
+  assert.equal(serializeWhatsappMessageId({}), null);
+
+  // JSON.stringify drops undefined — ensure we never return undefined.
+  const serialized = serializeWhatsappMessageId({
+    id: { fromMe: true, remote: '120363@g.us', id: '1' },
+  });
+  assert.equal(
+    JSON.parse(JSON.stringify({ whatsappMessageId: serialized }))
+      .whatsappMessageId,
+    'true_120363@g.us_1',
+  );
+
+  const lid = extractSenderIdentity({
+    author: '173709952336025@lid',
+    from: '120363group@g.us',
+  });
+  assert.equal(lid.isLid, true);
+  assert.equal(lid.senderKey, '173709952336025');
+  assert.equal(lid.senderJid, '173709952336025@lid');
+});

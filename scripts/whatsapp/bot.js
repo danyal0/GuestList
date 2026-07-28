@@ -25,6 +25,8 @@ const {
   parseInviteCode,
   createGroupResolver,
   extractPhone,
+  serializeWhatsappMessageId,
+  extractSenderIdentity,
 } = require('./group-resolve');
 
 // ─────────────────────────── Config ───────────────────────────
@@ -85,6 +87,7 @@ if (!XAI_API_KEY) {
  *   text: string | null,
  *   reaction: string | null,
  *   senderPhone: string,
+ *   senderJid?: string | null,
  *   whatsappMessageId: string,
  *   targetMessageId: string | null,
  * }} AnalyzePayload
@@ -299,15 +302,28 @@ async function dispatchIntent(payload, analysis) {
   }
 
   if (analysis.intent === 'CREATE_EVENT') {
-    await postToApp('/api/whatsapp/create-event', {
+    const body = {
       senderPhone: payload.senderPhone,
+      senderJid: payload.senderJid ?? null,
       messageBody: payload.text ?? '',
       whatsappMessageId: payload.whatsappMessageId,
       title: analysis.extractedData.title,
       suggestedTime: analysis.extractedData.suggestedTime,
       venue: analysis.extractedData.venue,
       confidence: analysis.confidence,
-    });
+    };
+    if (!body.senderPhone || !body.whatsappMessageId) {
+      console.error(
+        '[whatsapp-bot] Refusing CREATE_EVENT POST — missing fields:',
+        {
+          senderPhone: body.senderPhone,
+          whatsappMessageId: body.whatsappMessageId,
+          senderJid: body.senderJid,
+        },
+      );
+      return;
+    }
+    await postToApp('/api/whatsapp/create-event', body);
     return;
   }
 
@@ -575,11 +591,22 @@ client.on('message', async (message) => {
     if (!decision.ok) return;
 
     // In groups, author is the participant; avoid flaky getContact()/getChat().
-    const senderPhone =
-      extractPhone({ from: message.author || message.from }) ||
-      extractPhone(message);
+    // Modern WhatsApp may use @lid (not a real phone) — still send digits for lookup.
+    const identity = extractSenderIdentity(message);
+    const senderPhone = identity.senderKey;
+    const whatsappMessageId = serializeWhatsappMessageId(message);
+
     if (!senderPhone) {
-      console.warn('[whatsapp-bot] Skipping message with unknown sender phone.');
+      console.warn('[whatsapp-bot] Skipping message with unknown sender id.', {
+        author: message.author,
+        from: message.from,
+      });
+      return;
+    }
+    if (!whatsappMessageId) {
+      console.warn('[whatsapp-bot] Skipping message with unknown message id.', {
+        id: message.id,
+      });
       return;
     }
 
@@ -589,12 +616,13 @@ client.on('message', async (message) => {
       text: message.body || null,
       reaction: null,
       senderPhone,
-      whatsappMessageId: message.id._serialized,
+      senderJid: identity.senderJid,
+      whatsappMessageId,
       targetMessageId: null,
     };
 
     console.log(
-      `[whatsapp-bot] Message from ${senderPhone}: ${(payload.text || '').slice(0, 120)}`,
+      `[whatsapp-bot] Message from ${senderPhone}${identity.isLid ? ' (lid)' : ''}: ${(payload.text || '').slice(0, 120)}`,
     );
 
     const analysis = await analyzeWithxAI(payload);

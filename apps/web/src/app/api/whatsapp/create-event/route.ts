@@ -10,6 +10,7 @@ export const dynamic = 'force-dynamic';
 
 type CreateEventBody = {
   senderPhone?: string;
+  senderJid?: string | null;
   messageBody?: string;
   whatsappMessageId?: string;
   title?: string | null;
@@ -34,11 +35,17 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as CreateEventBody;
     const senderPhone = normalizePhone(body.senderPhone ?? '');
     const messageBody = (body.messageBody ?? '').trim();
-    const whatsappMessageId = (body.whatsappMessageId ?? '').trim();
+    const whatsappMessageId = String(body.whatsappMessageId ?? '').trim();
 
     if (!senderPhone || !whatsappMessageId) {
       return NextResponse.json(
-        { error: 'senderPhone and whatsappMessageId are required' },
+        {
+          error: 'senderPhone and whatsappMessageId are required',
+          missing: {
+            senderPhone: !senderPhone,
+            whatsappMessageId: !whatsappMessageId,
+          },
+        },
         { status: 400 },
       );
     }
@@ -64,7 +71,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const host = await prisma.user.findFirst({
+    let host = await prisma.user.findFirst({
       where: {
         OR: [
           { phone: senderPhone },
@@ -76,12 +83,29 @@ export async function POST(request: NextRequest) {
       select: { id: true, name: true, phone: true },
     });
 
+    if (!host && process.env.WHATSAPP_DEFAULT_HOST_USER_ID) {
+      host = await prisma.user.findFirst({
+        where: {
+          id: process.env.WHATSAPP_DEFAULT_HOST_USER_ID,
+          deletedAt: null,
+        },
+        select: { id: true, name: true, phone: true },
+      });
+      if (host) {
+        console.warn(
+          `[api/whatsapp/create-event] No user for phone=${senderPhone}; using WHATSAPP_DEFAULT_HOST_USER_ID=${host.id}`,
+        );
+      }
+    }
+
     if (!host) {
       return NextResponse.json(
         {
           error: 'No user found for senderPhone',
           senderPhone,
-          hint: 'Set User.phone (digits or E.164) for WhatsApp participants.',
+          senderJid: body.senderJid ?? null,
+          hint:
+            'Set User.phone to this senderPhone value (WhatsApp may send a @lid id, not a real phone). Or set WHATSAPP_DEFAULT_HOST_USER_ID as a fallback host.',
         },
         { status: 404 },
       );

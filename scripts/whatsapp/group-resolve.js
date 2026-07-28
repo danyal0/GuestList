@@ -137,9 +137,45 @@ function extractPhone(source) {
   return String(number || '').replace(/\D/g, '');
 }
 
+/**
+ * Build a stable WhatsApp message id string for Event.whatsappMessageId.
+ * Prefer `_serialized`; fall back to composing fromMe/remote/id.
+ * @param {any} message
+ * @returns {string | null}
+ */
+function serializeWhatsappMessageId(message) {
+  const id = message?.id;
+  if (!id) return null;
+  if (typeof id === 'string' && id.trim()) return id.trim();
+  if (typeof id._serialized === 'string' && id._serialized.trim()) {
+    return id._serialized.trim();
+  }
+  if (id.remote != null && id.id != null) {
+    return `${id.fromMe ? 'true' : 'false'}_${id.remote}_${id.id}`;
+  }
+  return null;
+}
+
+/**
+ * @param {any} message
+ * @returns {{ senderKey: string | null, senderJid: string | null, isLid: boolean }}
+ */
+function extractSenderIdentity(message) {
+  const jid = String(message?.author || message?.from || '');
+  const isLid = jid.includes('@lid');
+  const senderKey = extractPhone(message);
+  return {
+    senderKey: senderKey || null,
+    senderJid: jid || null,
+    isLid,
+  };
+}
+
 module.exports = {
   normalizeGroupId,
   parseInviteCode,
   createGroupResolver,
   extractPhone,
+  serializeWhatsappMessageId,
+  extractSenderIdentity,
 };
