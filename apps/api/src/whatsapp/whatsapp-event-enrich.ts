@@ -433,6 +433,95 @@ export function hasPlaceCue(messageBody: string | null | undefined): boolean {
   );
 }
 
+const PLACE_TOKENS = [
+  'atwater',
+  'mckinley',
+  'lake park',
+  'lake front',
+  'lakefront',
+  'shorewood',
+  'bradford',
+  'kenwood',
+  'lincoln memorial',
+] as const;
+
+/**
+ * Score how well an existing event matches a WhatsApp quoted invite body.
+ * Used when cancel/reschedule replies quote an earlier plan (esp. app-created
+ * events with no whatsappMessageId).
+ */
+export function scoreEventAgainstQuote(
+  candidate: RescheduleCandidate,
+  quotedText: string | null | undefined,
+): number {
+  if (!quotedText?.trim()) return 0;
+  const quote = quotedText.toLowerCase().replace(/\s+/g, ' ');
+  const hay = [
+    candidate.title,
+    candidate.locationName,
+    candidate.address,
+    candidate.description,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+
+  let score = 0;
+
+  // Exact / near-exact body reuse (common when the invite was WhatsApp→app).
+  const snippet = quotedText.trim().slice(0, 48).toLowerCase();
+  if (snippet.length >= 20 && hay.includes(snippet.slice(0, 24))) {
+    score += 0.7;
+  } else if (snippet.length >= 12 && hay.includes(snippet.slice(0, 12))) {
+    score += 0.45;
+  }
+
+  const catalog = resolveCatalogVenue(quotedText);
+  if (catalog) {
+    const slugBits = catalog.venue.slug.replace(/-/g, ' ');
+    const name = catalog.venue.name.toLowerCase();
+    if (
+      hay.includes(name.slice(0, Math.min(18, name.length))) ||
+      hay.includes(slugBits) ||
+      catalog.venue.aliases.some(
+        (a) => a.length >= 4 && quote.includes(a) && hay.includes(a),
+      )
+    ) {
+      score += 0.55;
+    }
+  }
+
+  for (const token of PLACE_TOKENS) {
+    if (quote.includes(token) && hay.includes(token)) {
+      score += token === 'atwater' || token === 'mckinley' ? 0.4 : 0.3;
+      break;
+    }
+  }
+
+  const loc = (candidate.locationName || '').toLowerCase();
+  if (loc.length >= 6 && quote.includes(loc.slice(0, Math.min(14, loc.length)))) {
+    score += 0.35;
+  }
+
+  const title = (candidate.title || '').toLowerCase();
+  if (title.length >= 8 && quote.includes(title.slice(0, Math.min(20, title.length)))) {
+    score += 0.25;
+  }
+
+  return Math.min(1, score);
+}
+
+/** Alternate WhatsApp serialized ids (fromMe true/false flip). */
+export function whatsappIdFromMeVariants(id: string | null | undefined): string[] {
+  if (!id?.trim()) return [];
+  const raw = id.trim();
+  const out = [raw];
+  if (raw.startsWith('true_')) out.push(`false_${raw.slice(5)}`);
+  if (raw.startsWith('false_')) out.push(`true_${raw.slice(6)}`);
+  return [...new Set(out)];
+}
+
 /** Pull Google Maps / Apple Maps short links from a WhatsApp body. */
 export function extractMapsUrls(messageBody: string | null | undefined): string[] {
   if (!messageBody) return [];
