@@ -162,6 +162,8 @@ model User {
   location        String?
   latitude        Float?
   longitude       Float?
+  /// E.164 or digits-only phone used to link WhatsApp participants to accounts
+  phone           String?   @unique
   role            UserRole  @default(USER)
   interests       String[]  @default([])
   skills          String[]  @default([])
@@ -325,6 +327,8 @@ model Event {
   rsvpDeadline   DateTime?
   recurrenceRule String?
   parentEventId  String?
+  /// WhatsApp message id that proposed this match (for reaction-based RSVPs)
+  whatsappMessageId String?      @unique
   remindersSentAt DateTime?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt

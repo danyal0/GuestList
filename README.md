@@ -67,8 +67,39 @@ The dev client auto-targets your machine's API on port 4000; set `EXPO_PUBLIC_AP
 | `npm run lint` | ESLint across API + web |
 | `npm run test` | Jest unit tests (API + web) |
 | `npm run test:e2e` | API integration tests (Supertest, isolated `gatherly_test` DB) |
-| `npm run db:migrate` / `db:seed` / `db:generate` | Prisma workflows |
-| `npx playwright test` (in `apps/web`) | Browser E2E (Chromium + mobile Safari) |
+| `npm run smoke:file` | Smoke-test file-backed API mode |
+| `npm run whatsapp:bot` | Long-running WhatsApp ↔ app bridge (`scripts/whatsapp-bot.js`) |
+
+## WhatsApp tennis-group bridge
+
+A long-running Node process watches a WhatsApp group, classifies messages with xAI/Grok, and POSTs into Next.js routes that write Events / RSVPs via Prisma.
+
+```bash
+# 1. Env for the bot (repo root)
+cp .env.whatsapp.example .env
+# fill WHATSAPP_BOT_TOKEN, XAI_API_KEY, APP_BASE_URL, WHATSAPP_GROUP_NAME
+
+# 2. Env for Next.js (apps/web)
+# add matching WHATSAPP_BOT_TOKEN, DATABASE_URL, WHATSAPP_DEFAULT_GROUP_ID
+# see apps/web/.env.example
+
+# 3. Apply schema (User.phone + Event.whatsappMessageId)
+npm run db:migrate
+
+# 4. Link participant phones on User rows, then:
+npm run whatsapp:bot   # scan QR on first run
+```
+
+| Variable | Where | Purpose |
+| --- | --- | --- |
+| `WHATSAPP_BOT_TOKEN` | bot + web | Shared secret (`x-whatsapp-bot-token` header) |
+| `XAI_API_KEY` | bot | Grok classification |
+| `XAI_API_URL` | bot | Defaults to `https://api.x.ai/v1/chat/completions` |
+| `XAI_MODEL` | bot | Defaults to `grok-4-1-fast-non-reasoning-latest` |
+| `WHATSAPP_GROUP_NAME` | bot | Group to monitor (default `Tennis Group`) |
+| `APP_BASE_URL` | bot | Next.js origin for `/api/whatsapp/*` |
+| `DATABASE_URL` | web | Prisma for create-event / rsvp routes |
+| `WHATSAPP_DEFAULT_GROUP_ID` | web | Community that owns WhatsApp-created events |
 
 ## Documentation
 

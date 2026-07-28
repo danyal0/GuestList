@@ -30,7 +30,13 @@
     "db:migrate": "npm run prisma:migrate -w apps/api",
     "db:seed": "npm run prisma:seed -w apps/api",
     "db:generate": "npm run prisma:generate -w apps/api",
-    "smoke:file": "node scripts/smoke-file-mode.mjs"
+    "smoke:file": "node scripts/smoke-file-mode.mjs",
+    "whatsapp:bot": "node scripts/whatsapp-bot.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.26.0"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
