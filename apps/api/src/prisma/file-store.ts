@@ -147,6 +147,13 @@ export class FileStore {
       changed = true;
     }
 
+    for (const user of this.db.users) {
+      if (!('shadowBannedAt' in user)) {
+        user.shadowBannedAt = null;
+        changed = true;
+      }
+    }
+
     // Seed / refresh canonical venues from catalog JSON (idempotent by slug).
     try {
       const catalogPath = join(__dirname, '..', 'data', 'venues-catalog.json');

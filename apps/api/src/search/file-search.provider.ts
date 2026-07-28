@@ -134,7 +134,7 @@ export class FileSearchProvider implements SearchProvider {
   async searchUsers(f: SearchFilters): Promise<UserSearchHit[]> {
     const q = f.query.toLowerCase();
     const users = await this.prisma.user.findMany({
-      where: { deletedAt: null, suspendedAt: null },
+      where: { deletedAt: null, suspendedAt: null, shadowBannedAt: null },
     });
     return users
       .filter((u) => u.name.toLowerCase().includes(q))

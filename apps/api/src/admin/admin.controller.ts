@@ -7,12 +7,22 @@ import {
   HttpStatus,
   Param,
   Patch,
+  Post,
   Query,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import { AdminService } from './admin.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -33,9 +43,23 @@ class SuspendDto {
   suspend!: boolean;
 }
 
+class ShadowBanDto {
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  shadowBan!: boolean;
+}
+
 class SetRoleDto {
   @IsEnum(UserRole)
   role!: UserRole;
+}
+
+class BulkIdsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @IsString({ each: true })
+  ids!: string[];
 }
 
 @ApiTags('admin')
@@ -64,6 +88,16 @@ export class AdminController {
     return { success: true };
   }
 
+  @Patch('users/:id/shadow-ban')
+  async shadowBan(
+    @CurrentUser() admin: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: ShadowBanDto,
+  ) {
+    await this.adminService.setUserShadowBan(admin.id, id, dto.shadowBan);
+    return { success: true };
+  }
+
   @Patch('users/:id/role')
   async setRole(
     @CurrentUser() admin: AuthUser,
@@ -71,6 +105,13 @@ export class AdminController {
     @Body() dto: SetRoleDto,
   ) {
     await this.adminService.setUserRole(admin.id, id, dto.role);
+    return { success: true };
+  }
+
+  @Delete('users/:id')
+  @HttpCode(HttpStatus.OK)
+  async deleteUser(@CurrentUser() admin: AuthUser, @Param('id') id: string) {
+    await this.adminService.softDeleteUser(admin.id, id);
     return { success: true };
   }
 
@@ -101,6 +142,26 @@ export class AdminController {
     return { success: true };
   }
 
+  // ───────── Bulk ─────────
+
+  @Post('bulk/users/delete')
+  @HttpCode(HttpStatus.OK)
+  async bulkDeleteUsers(@CurrentUser() admin: AuthUser, @Body() dto: BulkIdsDto) {
+    return this.adminService.bulkSoftDeleteUsers(admin.id, dto.ids);
+  }
+
+  @Post('bulk/groups/delete')
+  @HttpCode(HttpStatus.OK)
+  async bulkDeleteGroups(@CurrentUser() admin: AuthUser, @Body() dto: BulkIdsDto) {
+    return this.adminService.bulkRemoveGroups(admin.id, dto.ids);
+  }
+
+  @Post('bulk/events/cancel')
+  @HttpCode(HttpStatus.OK)
+  async bulkCancelEvents(@CurrentUser() admin: AuthUser, @Body() dto: BulkIdsDto) {
+    return this.adminService.bulkCancelEvents(admin.id, dto.ids);
+  }
+
   // ───────── Audit ─────────
 
   @Get('audit-logs')
@@ -109,6 +170,11 @@ export class AdminController {
   }
 
   // ───────── Analytics ─────────
+
+  @Get('stats/detailed')
+  async detailedStats() {
+    return this.adminService.detailedStats();
+  }
 
   @Get('analytics/overview')
   async overview() {

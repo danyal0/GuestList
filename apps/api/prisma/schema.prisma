@@ -172,7 +172,10 @@ model User {
   emailVerifiedAt DateTime?
   googleId        String?   @unique
   appleId         String?   @unique
+  /// Hard ban — cannot sign in.
   suspendedAt     DateTime?
+  /// Soft moderation — can use the app, but hidden from discovery / search.
+  shadowBannedAt  DateTime?
   deletedAt       DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

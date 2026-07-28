@@ -102,6 +102,7 @@ export class PostgresSearchProvider implements SearchProvider {
         FROM "users" u
         WHERE u."deletedAt" IS NULL
           AND u."suspendedAt" IS NULL
+          AND u."shadowBannedAt" IS NULL
           AND u.name % ${f.query}
         ORDER BY similarity(u.name, ${f.query}) DESC
         LIMIT ${f.limit} OFFSET ${f.offset}
