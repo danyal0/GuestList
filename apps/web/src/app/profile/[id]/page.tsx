@@ -70,6 +70,11 @@ export default function ProfilePage() {
   const { user: profileUser, stats, friendshipStatus } = profile.data;
   const interests = Array.isArray(profileUser.interests) ? profileUser.interests : [];
   const skills = Array.isArray(profileUser.skills) ? profileUser.skills : [];
+  const joinedLabel = formatDate(profileUser.createdAt, {
+    weekday: undefined,
+    year: 'numeric',
+    day: undefined,
+  });
 
   return (
     <div className="mx-auto max-w-2xl space-y-8">
@@ -85,10 +90,11 @@ export default function ProfilePage() {
               <MapPin className="h-4 w-4" aria-hidden /> {profileUser.location}
             </span>
           )}
-          <span className="flex items-center gap-1.5">
-            <CalendarDays className="h-4 w-4" aria-hidden /> Joined{' '}
-            {formatDate(profileUser.createdAt, { weekday: undefined, year: 'numeric', day: undefined })}
-          </span>
+          {joinedLabel ? (
+            <span className="flex items-center gap-1.5">
+              <CalendarDays className="h-4 w-4" aria-hidden /> Joined {joinedLabel}
+            </span>
+          ) : null}
         </div>
         {profileUser.bio && (
           <p className="mt-3 max-w-md text-[15px] leading-relaxed text-[var(--color-ink-secondary)]">

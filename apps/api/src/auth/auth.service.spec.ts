@@ -283,4 +283,21 @@ describe('AuthService', () => {
       });
     });
   });
+
+  describe('toPublicUser', () => {
+    it('defaults missing interests/skills so settings/profile clients do not crash', () => {
+      const raw = makeUser({
+        interests: undefined,
+        skills: null,
+        name: '  ',
+        whatsappLid: '173709952336025',
+      });
+      const pub = service.toPublicUser(raw as never);
+      expect(pub.interests).toEqual([]);
+      expect(pub.skills).toEqual([]);
+      expect(pub.name).toBe('Member');
+      expect(pub.whatsappLinked).toBe(true);
+      expect(pub.emailVerified).toBe(false);
+    });
+  });
 });

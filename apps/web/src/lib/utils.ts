@@ -5,27 +5,36 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
-export function formatDate(date: string | Date, options?: Intl.DateTimeFormatOptions): string {
+export function formatDate(date: string | Date | null | undefined, options?: Intl.DateTimeFormatOptions): string {
+  const parsed = date == null ? null : new Date(date);
+  if (!parsed || Number.isNaN(parsed.getTime())) return '';
   return new Intl.DateTimeFormat('en-US', {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
     ...options,
-  }).format(new Date(date));
+  }).format(parsed);
 }
 
-export function formatTime(date: string | Date): string {
-  return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(
-    new Date(date),
-  );
+export function formatTime(date: string | Date | null | undefined): string {
+  const parsed = date == null ? null : new Date(date);
+  if (!parsed || Number.isNaN(parsed.getTime())) return '';
+  return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(parsed);
 }
 
-export function formatDateTime(date: string | Date): string {
-  return `${formatDate(date)} · ${formatTime(date)}`;
+export function formatDateTime(date: string | Date | null | undefined): string {
+  const day = formatDate(date);
+  const time = formatTime(date);
+  if (!day && !time) return '';
+  if (!day) return time;
+  if (!time) return day;
+  return `${day} · ${time}`;
 }
 
-export function formatRelative(date: string | Date): string {
-  const diff = Date.now() - new Date(date).getTime();
+export function formatRelative(date: string | Date | null | undefined): string {
+  const parsed = date == null ? null : new Date(date);
+  if (!parsed || Number.isNaN(parsed.getTime())) return '';
+  const diff = Date.now() - parsed.getTime();
   const minutes = Math.floor(diff / 60000);
   if (minutes < 1) return 'now';
   if (minutes < 60) return `${minutes}m`;
@@ -36,13 +45,14 @@ export function formatRelative(date: string | Date): string {
   return formatDate(date, { weekday: undefined });
 }
 
-export function initials(name: string): string {
+export function initials(name: string | null | undefined): string {
+  if (!name) return '?';
   return name
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]!.toUpperCase())
-    .join('');
+    .join('') || '?';
 }
 
 export const CATEGORY_LABELS: Record<string, string> = {

@@ -8,7 +8,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { FriendshipStatus, GroupMemberStatus, NotificationType, RsvpStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { publicUserSelect, PublicUserSummary } from '../users/users.service';
+import { publicUserSelect, PublicUserSummary, normalizePublicSummary } from '../users/users.service';
 import { NOTIFY_EVENT } from '../notifications/notification.events';
 
 export interface ProfileView {
@@ -81,12 +81,10 @@ export class ProfilesService {
     }
 
     return {
-      user: {
+      user: normalizePublicSummary({
         ...user,
-        interests: Array.isArray(user.interests) ? user.interests : [],
-        skills: Array.isArray(user.skills) ? user.skills : [],
         name: user.name?.trim() || 'Member',
-      },
+      }),
       stats: { groupsJoined, eventsAttended, eventsHosted, friends, following },
       friendshipStatus,
     };
@@ -220,7 +218,9 @@ export class ProfilesService {
         addressee: { select: publicUserSelect },
       },
     });
-    return friendships.map((f) => (f.requesterId === userId ? f.addressee : f.requester));
+    return friendships.map((f) =>
+      normalizePublicSummary(f.requesterId === userId ? f.addressee : f.requester),
+    );
   }
 
   async getPendingRequests(userId: string) {

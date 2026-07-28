@@ -92,7 +92,7 @@ export default function ProfileScreen() {
       )}
 
       {/* Interests */}
-      {user.interests.length > 0 && (
+      {Array.isArray(user.interests) && user.interests.length > 0 && (
         <View style={{ gap: spacing.sm }}>
           <Text style={{ fontSize: 16, fontWeight: '700', color: colors.ink }}>Interests</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

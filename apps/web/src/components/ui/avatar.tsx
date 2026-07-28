@@ -6,7 +6,7 @@ import { cn, initials } from '@/lib/utils';
 
 interface AvatarProps extends React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Root> {
   src?: string | null;
-  name: string;
+  name?: string | null;
   size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
@@ -18,6 +18,7 @@ const sizes = {
 };
 
 export function Avatar({ src, name, size = 'md', className, ...props }: AvatarProps) {
+  const label = name?.trim() || 'Member';
   return (
     <AvatarPrimitive.Root
       className={cn(
@@ -30,7 +31,7 @@ export function Avatar({ src, name, size = 'md', className, ...props }: AvatarPr
       {src && (
         <AvatarPrimitive.Image
           src={src}
-          alt={name}
+          alt={label}
           className="aspect-square h-full w-full object-cover"
         />
       )}
@@ -38,7 +39,7 @@ export function Avatar({ src, name, size = 'md', className, ...props }: AvatarPr
         className="flex h-full w-full items-center justify-center font-semibold text-white"
         delayMs={src ? 300 : 0}
       >
-        {initials(name)}
+        {initials(label)}
       </AvatarPrimitive.Fallback>
     </AvatarPrimitive.Root>
   );

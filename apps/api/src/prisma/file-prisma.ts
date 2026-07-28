@@ -217,6 +217,9 @@ function pickSelect(row: JsonRow, select: Record<string, unknown> | undefined): 
     if (key === '_count') continue;
     if (enabled) out[key] = row[key];
   }
+  // Legacy WhatsApp rows may omit these; callers treat them as required arrays.
+  if ('interests' in out && !Array.isArray(out.interests)) out.interests = [];
+  if ('skills' in out && !Array.isArray(out.skills)) out.skills = [];
   return out;
 }
 

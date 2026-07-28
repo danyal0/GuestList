@@ -20,6 +20,45 @@ export const publicUserSelect = {
 
 export type PublicUserSummary = Prisma.UserGetPayload<{ select: typeof publicUserSelect }>;
 
+/** Auth-session user shape (matches AuthService.toPublicUser). */
+export function toAuthPublicUser(user: User) {
+  const interests = Array.isArray(user.interests) ? user.interests : [];
+  const skills = Array.isArray(user.skills) ? user.skills : [];
+  const createdAt =
+    user.createdAt instanceof Date
+      ? user.createdAt
+      : user.createdAt
+        ? new Date(user.createdAt)
+        : new Date();
+  return {
+    id: user.id,
+    email: user.email ?? null,
+    phone: user.phone ?? null,
+    whatsappLid: user.whatsappLid ?? null,
+    whatsappLinked: Boolean(user.whatsappLid),
+    name: (user.name && String(user.name).trim()) || 'Member',
+    avatarUrl: user.avatarUrl ?? null,
+    bio: user.bio ?? null,
+    location: user.location ?? null,
+    role: user.role ?? 'USER',
+    interests,
+    skills,
+    emailVerified: user.emailVerifiedAt != null,
+    createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
+  };
+}
+
+function normalizePublicSummary(user: PublicUserSummary): PublicUserSummary {
+  return {
+    ...user,
+    name: (user.name && String(user.name).trim()) || 'Member',
+    interests: Array.isArray(user.interests) ? user.interests : [],
+    skills: Array.isArray(user.skills) ? user.skills : [],
+  };
+}
+
+export { normalizePublicSummary };
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -33,7 +72,7 @@ export class UsersService {
       select: publicUserSelect,
     });
     if (!user) throw new NotFoundException('User not found');
-    return user;
+    return normalizePublicSummary(user);
   }
 
   async updateMe(userId: string, dto: UpdateUserDto): Promise<User> {
