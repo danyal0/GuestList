@@ -20,6 +20,12 @@ require('dotenv').config();
 
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
+const {
+  normalizeGroupId,
+  parseInviteCode,
+  createGroupResolver,
+  extractPhone,
+} = require('./group-resolve');
 
 // ─────────────────────────── Config ───────────────────────────
 
@@ -319,165 +325,102 @@ async function dispatchIntent(payload, analysis) {
 
 // ─────────────────────────── WhatsApp helpers ───────────────────────────
 
-/** @param {import('whatsapp-web.js').Contact | import('whatsapp-web.js').Message} source */
-function extractPhone(source) {
-  // Prefer Contact.number when available; fall back to WhatsApp JID local-part.
-  const number =
-    /** @type {{ number?: string }} */ (source)?.number ||
-    String(
-      /** @type {{ from?: string, author?: string, id?: { user?: string } }} */ (
-        source
-      ).author ||
-        /** @type {{ from?: string }} */ (source).from ||
-        '',
-    )
-      .split('@')[0]
-      .replace(/:\d+$/, '');
-
-  return String(number || '').replace(/\D/g, '');
-}
-
 /**
- * Cached WhatsApp group JID (e.g. 120363…@g.us).
+ * Cached WhatsApp group JID resolver.
  * Resolution order:
  *   1) WHATSAPP_GROUP_ID
  *   2) WHATSAPP_GROUP_INVITE / invite URL via getInviteInfo
  *   3) Auto-learn from the first inbound …@g.us message (default on)
- * getChats()/getChat() are intentionally avoided — they throw cryptic `r: r`
- * against current WhatsApp Web.
- * @type {string | null}
+ * getChats()/getChat() are intentionally avoided on the message path.
  */
-let targetGroupId = normalizeGroupId(process.env.WHATSAPP_GROUP_ID);
-
-/**
- * @param {unknown} value
- * @returns {string | null}
- */
-function normalizeGroupId(value) {
-  if (value == null) return null;
-  let id = String(value).trim();
-  if (!id) return null;
-  if (/^\d+$/.test(id)) id = `${id}@g.us`;
-  return id.endsWith('@g.us') ? id : null;
-}
-
-/**
- * @param {string | null | undefined} raw
- * @returns {string | null}
- */
-function parseInviteCode(raw) {
-  if (!raw) return null;
-  const fromUrl = String(raw).match(
-    /chat\.whatsapp\.com\/([A-Za-z0-9]+)(?:[?#].*)?$/,
-  );
-  if (fromUrl) return fromUrl[1];
-  const trimmed = String(raw).trim();
-  return /^[A-Za-z0-9]+$/.test(trimmed) ? trimmed : null;
-}
+const groupResolver = createGroupResolver({
+  groupId: process.env.WHATSAPP_GROUP_ID,
+  autoLearn: process.env.WHATSAPP_AUTO_LEARN_GROUP !== 'false',
+  log: (...args) => console.log(...args),
+});
 
 /**
  * @returns {Promise<string | null>}
  */
 async function resolveTargetGroupId() {
-  if (targetGroupId) return targetGroupId;
+  try {
+    if (groupResolver.getId()) return groupResolver.getId();
 
-  const inviteCode = parseInviteCode(
-    process.env.WHATSAPP_GROUP_INVITE || process.env.WHATSAPP_INVITE_CODE,
-  );
+    const inviteCode = parseInviteCode(
+      process.env.WHATSAPP_GROUP_INVITE || process.env.WHATSAPP_INVITE_CODE,
+    );
 
-  if (inviteCode) {
-    try {
-      const info = await client.getInviteInfo(inviteCode);
-      const rawId =
-        info?.id?._serialized ||
-        info?.id ||
-        info?.groupId?._serialized ||
-        info?.groupId ||
-        info?.gid?._serialized ||
-        info?.gid ||
-        null;
-      const id = normalizeGroupId(rawId);
-      if (id) {
-        targetGroupId = id;
-        const subject = info?.subject || info?.name || WHATSAPP_GROUP_NAME;
-        console.log(
-          `[whatsapp-bot] Resolved group from invite "${subject}" → ${targetGroupId}`,
+    if (inviteCode) {
+      try {
+        const info = await client.getInviteInfo(inviteCode);
+        const rawId =
+          info?.id?._serialized ||
+          info?.id ||
+          info?.groupId?._serialized ||
+          info?.groupId ||
+          info?.gid?._serialized ||
+          info?.gid ||
+          null;
+        const id = normalizeGroupId(rawId);
+        if (id) {
+          groupResolver.setId(id);
+          const subject = info?.subject || info?.name || WHATSAPP_GROUP_NAME;
+          console.log(
+            `[whatsapp-bot] Resolved group from invite "${subject}" → ${id}`,
+          );
+          return id;
+        }
+        console.warn(
+          '[whatsapp-bot] getInviteInfo returned no usable id:',
+          JSON.stringify(info).slice(0, 400),
         );
-        return targetGroupId;
-      }
-      console.warn(
-        '[whatsapp-bot] getInviteInfo returned no usable id:',
-        JSON.stringify(info).slice(0, 400),
-      );
-    } catch (err) {
-      console.warn(
-        '[whatsapp-bot] getInviteInfo failed:',
-        err?.message || err,
-      );
-    }
-  }
-
-  // Optional legacy path — often broken (`r: r`) on current WhatsApp Web.
-  if (process.env.WHATSAPP_USE_GET_CHATS === 'true') {
-    try {
-      const wanted = WHATSAPP_GROUP_NAME.trim().toLowerCase();
-      const chats = await client.getChats();
-      const match = chats.find(
-        (chat) =>
-          chat.isGroup && (chat.name || '').trim().toLowerCase() === wanted,
-      );
-      if (match) {
-        targetGroupId = match.id._serialized;
-        console.log(
-          `[whatsapp-bot] Resolved group "${match.name}" → ${targetGroupId}`,
+      } catch (err) {
+        console.warn(
+          '[whatsapp-bot] getInviteInfo failed:',
+          err?.message || err,
         );
-        return targetGroupId;
       }
-      console.warn(
-        `[whatsapp-bot] Group "${WHATSAPP_GROUP_NAME}" not found via getChats().`,
-      );
-    } catch (err) {
-      console.warn(
-        '[whatsapp-bot] getChats failed (expected on some WA Web builds):',
-        err?.message || err,
-      );
     }
+
+    // Optional legacy path — often broken (`r: r`) on current WhatsApp Web.
+    if (process.env.WHATSAPP_USE_GET_CHATS === 'true') {
+      try {
+        const wanted = WHATSAPP_GROUP_NAME.trim().toLowerCase();
+        const chats = await client.getChats();
+        const match = chats.find(
+          (chat) =>
+            chat.isGroup && (chat.name || '').trim().toLowerCase() === wanted,
+        );
+        if (match) {
+          const id = match.id._serialized;
+          groupResolver.setId(id);
+          console.log(
+            `[whatsapp-bot] Resolved group "${match.name}" → ${id}`,
+          );
+          return id;
+        }
+        console.warn(
+          `[whatsapp-bot] Group "${WHATSAPP_GROUP_NAME}" not found via getChats().`,
+        );
+      } catch (err) {
+        console.warn(
+          '[whatsapp-bot] getChats failed (expected on some WA Web builds):',
+          err?.message || err,
+        );
+      }
+    }
+
+    console.warn(
+      '[whatsapp-bot] Group id not resolved yet. Set WHATSAPP_GROUP_ID=…@g.us or WHATSAPP_GROUP_INVITE=https://chat.whatsapp.com/… — or send any message in the group to auto-learn the id.',
+    );
+    return null;
+  } catch (err) {
+    console.warn(
+      '[whatsapp-bot] resolveTargetGroupId unexpected error:',
+      err?.message || err,
+    );
+    return null;
   }
-
-  console.warn(
-    '[whatsapp-bot] Group id not resolved yet. Set WHATSAPP_GROUP_ID=…@g.us or WHATSAPP_GROUP_INVITE=https://chat.whatsapp.com/… — or send any message in the group to auto-learn the id.',
-  );
-  return null;
-}
-
-/**
- * Learn / pin the group JID from an inbound group message when unset.
- * @param {string} chatId
- */
-function maybeLearnGroupId(chatId) {
-  if (targetGroupId) return targetGroupId;
-  const id = normalizeGroupId(chatId);
-  if (!id) return null;
-
-  const autoLearn = process.env.WHATSAPP_AUTO_LEARN_GROUP !== 'false';
-  console.log(
-    `[whatsapp-bot] Saw group message from ${id}. Pin permanently with WHATSAPP_GROUP_ID=${id}`,
-  );
-
-  if (!autoLearn) return null;
-
-  targetGroupId = id;
-  console.log(`[whatsapp-bot] Auto-learned target group id ${targetGroupId}`);
-  return targetGroupId;
-}
-
-/**
- * @param {string | null | undefined} chatId
- */
-function isTargetGroupId(chatId) {
-  if (!chatId || !String(chatId).endsWith('@g.us')) return false;
-  if (!targetGroupId) return false;
-  return chatId === targetGroupId;
 }
 
 /**
@@ -603,8 +546,9 @@ client.on('ready', async () => {
   console.log(
     `[whatsapp-bot] Ready. Listening for messages in group "${WHATSAPP_GROUP_NAME}".`,
   );
-  if (targetGroupId) {
-    console.log(`[whatsapp-bot] Using WHATSAPP_GROUP_ID=${targetGroupId}`);
+  const pinned = groupResolver.getId();
+  if (pinned) {
+    console.log(`[whatsapp-bot] Using WHATSAPP_GROUP_ID=${pinned}`);
     return;
   }
   try {
@@ -623,18 +567,12 @@ client.on('disconnected', (reason) => {
 
 client.on('message', async (message) => {
   try {
-    // Ignore status broadcasts and own echo unless explicitly enabled.
-    if (message.from === 'status@broadcast') return;
-    if (message.fromMe && process.env.WHATSAPP_PROCESS_SELF !== 'true') return;
-
-    // Groups only — message.from is the group JID (…@g.us). No Store/getChats needed.
-    if (!String(message.from || '').endsWith('@g.us')) return;
-
-    // Learn FIRST from the message itself — never block on flaky Puppeteer Store APIs.
-    if (!targetGroupId) {
-      maybeLearnGroupId(message.from);
-    }
-    if (!isTargetGroupId(message.from)) return;
+    const decision = groupResolver.shouldProcessMessage({
+      from: message.from,
+      fromMe: message.fromMe,
+      processSelf: process.env.WHATSAPP_PROCESS_SELF === 'true',
+    });
+    if (!decision.ok) return;
 
     // In groups, author is the participant; avoid flaky getContact()/getChat().
     const senderPhone =
@@ -697,7 +635,7 @@ client.on('message_reaction', async (reaction) => {
         ? targetMessageId.split('_').find((part) => part.endsWith('@g.us'))
         : null);
 
-    if (!targetGroupId) {
+    if (!groupResolver.getId()) {
       try {
         await resolveTargetGroupId();
       } catch {
@@ -705,13 +643,15 @@ client.on('message_reaction', async (reaction) => {
       }
     }
 
-    if (reactionChatId && !isTargetGroupId(reactionChatId)) return;
-    if (!reactionChatId && process.env.WHATSAPP_REQUIRE_GROUP_ON_REACTION === 'true') {
+    if (reactionChatId && !groupResolver.isTargetGroupId(reactionChatId)) return;
+    if (
+      !reactionChatId &&
+      process.env.WHATSAPP_REQUIRE_GROUP_ON_REACTION === 'true'
+    ) {
       console.warn('[whatsapp-bot] Skipping reaction; group chat unresolved.');
       return;
     }
-    if (!reactionChatId && targetGroupId) {
-      // Soft allow only when we couldn't parse chat id; still prefer a match when possible.
+    if (!reactionChatId && groupResolver.getId()) {
       console.warn(
         '[whatsapp-bot] Reaction chat id unknown; processing anyway (set WHATSAPP_REQUIRE_GROUP_ON_REACTION=true to strict-filter).',
       );

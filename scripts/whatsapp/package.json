@@ -5,7 +5,8 @@
   "description": "Long-running WhatsApp ↔ MKE Plays bridge (optional Railway sibling process)",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node bot.js",
+    "test": "node --test group-resolve.test.js"
   },
   "engines": {
     "node": ">=20"
