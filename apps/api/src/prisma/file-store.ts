@@ -39,8 +39,12 @@ const DATE_KEYS = new Set([
   'respondedAt',
   'startTime',
   'endTime',
+  'previousStartTime',
+  'rescheduledAt',
+  'remindersSentAt',
   'rsvpDeadline',
   'cancelledAt',
+  'verifiedAt',
   'expiresAt',
   'revokedAt',
   'usedAt',
@@ -220,6 +224,18 @@ export class FileStore {
       }
       if (!('deletedAt' in user)) {
         user.deletedAt = null;
+        changed = true;
+      }
+      if (!Array.isArray(user.interests)) {
+        user.interests = [];
+        changed = true;
+      }
+      if (!Array.isArray(user.skills)) {
+        user.skills = [];
+        changed = true;
+      }
+      if (!user.role) {
+        user.role = 'USER';
         changed = true;
       }
     }

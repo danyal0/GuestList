@@ -78,6 +78,8 @@ export interface EventSummary {
   timezone: string;
   startTime: string;
   endTime: string;
+  previousStartTime?: string | null;
+  rescheduledAt?: string | null;
   capacity: number | null;
   status: EventStatus;
   goingCount: number;

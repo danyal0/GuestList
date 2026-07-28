@@ -549,6 +549,11 @@ function delegate(model: string) {
       if (model === 'rsvp' && !data.status) data.status = 'GOING';
       if (model === 'event' && data.capacity === undefined) data.capacity = null;
       if (model === 'event' && data.allowWaitlist === undefined) data.allowWaitlist = true;
+      if (model === 'user') {
+        if (data.interests === undefined) data.interests = [];
+        if (data.skills === undefined) data.skills = [];
+        if (data.role === undefined) data.role = 'USER';
+      }
       // Nested creates used by messaging / groups
       const participants = data.participants as { create?: unknown } | undefined;
       delete data.participants;
