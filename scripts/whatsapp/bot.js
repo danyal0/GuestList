@@ -1,5 +1,5 @@
 /**
- * WhatsApp ↔ Gatherly bridge
+ * WhatsApp ↔ MKE Plays bridge
  *
  * Long-running Node process (not a Next.js serverless function).
  * Uses whatsapp-web.js + LocalAuth, classifies chat with xAI/Grok,
@@ -361,7 +361,7 @@ function intentFromReactionEmoji(emoji) {
 
 const client = new Client({
   authStrategy: new LocalAuth({
-    clientId: process.env.WHATSAPP_CLIENT_ID || 'gatherly-tennis-bot',
+    clientId: process.env.WHATSAPP_CLIENT_ID || 'mkeplays-tennis-bot',
     dataPath: process.env.WHATSAPP_AUTH_PATH || path.resolve(__dirname, '.wwebjs_auth'),
   }),
   puppeteer: {

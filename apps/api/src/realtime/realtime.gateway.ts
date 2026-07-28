@@ -151,7 +151,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const header = client.handshake.headers.authorization;
     if (header?.startsWith('Bearer ')) return header.slice(7);
     const cookies = client.handshake.headers.cookie;
-    const match = cookies?.match(/gatherly_access=([^;]+)/);
+    const match = cookies?.match(/mkeplays_access=([^;]+)/);
     return match?.[1];
   }
 }

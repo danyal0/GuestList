@@ -1,6 +1,6 @@
-# Gatherly
+# MKE Plays
 
-**Find your people.** Gatherly is a production-ready community discovery and events platform — discover communities, join groups, host events, RSVP, chat in real time, and manage communities professionally.
+**Find your people.** MKE Plays is a production-ready community discovery and events platform — discover communities, join groups, host events, RSVP, chat in real time, and manage communities professionally.
 
 | App | Stack | Path |
 | --- | --- | --- |
@@ -37,7 +37,7 @@ npm run dev
 Open http://localhost:3000. Demo accounts (password `Passw0rd!`):
 
 - `maya@example.com` — member
-- `admin@gatherly.app` — platform admin
+- `admin@mkeplays.app` — platform admin
 
 To use Postgres instead: set `DATA_SOURCE=postgres`, start DB (`docker compose up db -d`), then `npm run db:migrate && npm run db:seed`.
 
@@ -66,7 +66,7 @@ The dev client auto-targets your machine's API on port 4000; set `EXPO_PUBLIC_AP
 | `npm run start:api` / `start:web` | Start only API or only web |
 | `npm run lint` | ESLint across API + web |
 | `npm run test` | Jest unit tests (API + web) |
-| `npm run test:e2e` | API integration tests (Supertest, isolated `gatherly_test` DB) |
+| `npm run test:e2e` | API integration tests (Supertest, isolated `mkeplays_test` DB) |
 | `npm run smoke:file` | Smoke-test file-backed API mode |
 | `npm run whatsapp:install` | Install bot-only deps (Puppeteer) — **not** used by Railway |
 | `npm run whatsapp:bot` | Long-running WhatsApp ↔ app bridge (`scripts/whatsapp/bot.js`) |

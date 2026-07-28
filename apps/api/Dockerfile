@@ -25,7 +25,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 RUN apt-get update -y && apt-get install -y --no-install-recommends openssl curl && rm -rf /var/lib/apt/lists/* \
-  && groupadd --system gatherly && useradd --system --gid gatherly gatherly
+  && groupadd --system mkeplays && useradd --system --gid mkeplays mkeplays
 
 COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/apps/api/node_modules ./apps/api/node_modules
@@ -34,9 +34,9 @@ COPY --from=build /repo/apps/api/prisma ./apps/api/prisma
 COPY --from=build /repo/apps/api/package.json ./apps/api/package.json
 
 # Writable uploads dir (mount a volume in production).
-RUN mkdir -p /app/apps/api/uploads && chown -R gatherly:gatherly /app
+RUN mkdir -p /app/apps/api/uploads && chown -R mkeplays:mkeplays /app
 
-USER gatherly
+USER mkeplays
 WORKDIR /app/apps/api
 EXPOSE 4000
 

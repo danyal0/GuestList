@@ -4,8 +4,8 @@ import { Platform } from 'react-native';
 import { useAuthStore } from '@/stores/auth';
 import type { User } from '@/lib/types';
 
-const ACCESS_KEY = 'gatherly.access';
-const REFRESH_KEY = 'gatherly.refresh';
+const ACCESS_KEY = 'mkeplays.access';
+const REFRESH_KEY = 'mkeplays.refresh';
 
 /**
  * Resolve the API origin:

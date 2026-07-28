@@ -1,21 +1,21 @@
 {
   "expo": {
-    "name": "Gatherly",
-    "slug": "gatherly",
+    "name": "MKE Plays",
+    "slug": "mkeplays",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "gatherly",
+    "scheme": "mkeplays",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.gatherly.app",
+      "bundleIdentifier": "com.mkeplays.app",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Gatherly uses your location to find communities and events near you."
+        "NSLocationWhenInUseUsageDescription": "MKE Plays uses your location to find communities and events near you."
       }
     },
     "android": {
-      "package": "com.gatherly.app",
+      "package": "com.mkeplays.app",
       "adaptiveIcon": {
         "backgroundColor": "#0a84ff",
         "foregroundImage": "./assets/images/icon.png"

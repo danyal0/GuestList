@@ -62,7 +62,7 @@ export class UsersService {
         where: { id: userId },
         data: {
           deletedAt: new Date(),
-          email: `deleted-${userId}@deleted.gatherly.app`,
+          email: `deleted-${userId}@deleted.mkeplays.app`,
           name: 'Deleted member',
           avatarUrl: null,
           bio: null,

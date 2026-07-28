@@ -89,7 +89,7 @@ function LoginForm() {
         Sign in
       </Button>
       <p className="pt-2 text-center text-[14px] text-[var(--color-ink-secondary)]">
-        New to Gatherly?{' '}
+        New to MKE Plays?{' '}
         <Link href="/signup" className="font-semibold text-[var(--color-accent)]">
           Create an account
         </Link>

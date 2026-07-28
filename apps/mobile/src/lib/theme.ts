@@ -1,7 +1,7 @@
 import { useColorScheme } from 'react-native';
 
 /**
- * Gatherly design tokens for native surfaces.
+ * MKE Plays design tokens for native surfaces.
  * Mirrors the web design system (globals.css) so both clients feel like one product.
  */
 interface Palette {

@@ -63,7 +63,7 @@ export default function SearchScreen() {
         </View>
 
         {!query ? (
-          <EmptyState icon="search-outline" title="Search Gatherly" description="Communities, events and people — all in one place." />
+          <EmptyState icon="search-outline" title="Search MKE Plays" description="Communities, events and people — all in one place." />
         ) : results.isPending ? (
           <View style={{ gap: spacing.md }}>
             {[0, 1, 2].map((i) => (

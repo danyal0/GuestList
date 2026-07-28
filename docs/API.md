@@ -4,7 +4,7 @@ Base URL: `/api/v1` · Interactive Swagger docs at **`/api/docs`** (non-producti
 
 ## Conventions
 
-- **Auth**: `Authorization: Bearer <accessToken>` (mobile) or httpOnly cookies (web). Cookie-based mutations additionally require `X-CSRF-Token` matching the `gatherly_csrf` cookie.
+- **Auth**: `Authorization: Bearer <accessToken>` (mobile) or httpOnly cookies (web). Cookie-based mutations additionally require `X-CSRF-Token` matching the `mkeplays_csrf` cookie.
 - **Pagination**: `?page=1&limit=20` → `{ items, total, page, limit, totalPages }`.
 - **Errors**: `{ statusCode, message, error, path, timestamp }`. Validation errors return `message` as an array.
 - **Rate limits**: 120 req/min global; stricter on auth endpoints (login/signup 10/min, forgot-password 5/min, resend-verification 3/min).

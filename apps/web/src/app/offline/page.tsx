@@ -10,7 +10,7 @@ export default function OfflinePage() {
       </div>
       <h1 className="text-[24px] font-extrabold tracking-tight">You&apos;re offline</h1>
       <p className="mt-2 max-w-sm text-[15px] text-[var(--color-ink-secondary)]">
-        Gatherly needs a connection for fresh content. Recently viewed pages may still work — or try
+        MKE Plays needs a connection for fresh content. Recently viewed pages may still work — or try
         again once you&apos;re back online.
       </p>
     </div>

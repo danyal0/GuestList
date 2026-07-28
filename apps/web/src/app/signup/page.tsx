@@ -44,7 +44,7 @@ export default function SignupPage() {
         skipRefresh: true,
       });
       setSession(data.user, data.accessToken);
-      toast.success('Welcome to Gatherly! Check your inbox to verify your email.');
+      toast.success('Welcome to MKE Plays! Check your inbox to verify your email.');
       router.push('/');
       router.refresh();
     } catch (error) {
@@ -55,7 +55,7 @@ export default function SignupPage() {
   };
 
   return (
-    <AuthCard title="Join Gatherly" subtitle="Free forever. Find your people in minutes.">
+    <AuthCard title="Join MKE Plays" subtitle="Free forever. Find your people in minutes.">
       <form onSubmit={onSubmit} noValidate className="space-y-4">
         <div>
           <Label htmlFor="name">Full name</Label>

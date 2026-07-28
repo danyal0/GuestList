@@ -6,27 +6,27 @@ import { AppShell } from '@/components/layout/app-shell';
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_WEB_URL ?? 'http://localhost:3000'),
   title: {
-    default: 'Gatherly — Find your people',
-    template: '%s · Gatherly',
+    default: 'MKE Plays — Find your people',
+    template: '%s · MKE Plays',
   },
   description:
-    'Discover communities, join groups, and attend events near you. Gatherly is where hobbies, careers and friendships come together.',
-  applicationName: 'Gatherly',
+    'Discover communities, join groups, and attend events near you. MKE Plays is where hobbies, careers and friendships come together.',
+  applicationName: 'MKE Plays',
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Gatherly',
+    title: 'MKE Plays',
   },
   openGraph: {
     type: 'website',
-    siteName: 'Gatherly',
-    title: 'Gatherly — Find your people',
+    siteName: 'MKE Plays',
+    title: 'MKE Plays — Find your people',
     description: 'Discover communities, join groups, and attend events near you.',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Gatherly — Find your people',
+    title: 'MKE Plays — Find your people',
     description: 'Discover communities, join groups, and attend events near you.',
   },
   robots: { index: true, follow: true },

@@ -53,7 +53,7 @@ export default (): AppConfig => ({
     port: Number(process.env.SMTP_PORT ?? 587),
     user: process.env.SMTP_USER || undefined,
     pass: process.env.SMTP_PASS || undefined,
-    from: process.env.MAIL_FROM ?? 'Gatherly <no-reply@gatherly.app>',
+    from: process.env.MAIL_FROM ?? 'MKE Plays <no-reply@mkeplays.app>',
   },
   uploads: { maxBytes: Number(process.env.UPLOAD_MAX_BYTES ?? 5 * 1024 * 1024) },
 });

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Gatherly is a **modular monolith** with three clients sharing one API contract:
+MKE Plays is a **modular monolith** with three clients sharing one API contract:
 
 ```
 ┌─────────────┐   ┌──────────────┐   ┌───────────────┐
@@ -54,7 +54,7 @@ Each NestJS module owns its domain and communicates with others through the DI c
 Throttler → JwtAuthGuard → CsrfGuard → RolesGuard → ValidationPipe → handler → AllExceptionsFilter
 ```
 
-- **JwtAuthGuard** accepts `Authorization: Bearer` (mobile) or the `gatherly_access` httpOnly cookie (web) and records which source was used.
+- **JwtAuthGuard** accepts `Authorization: Bearer` (mobile) or the `mkeplays_access` httpOnly cookie (web) and records which source was used.
 - **CsrfGuard** enforces double-submit-cookie CSRF **only** for cookie-authenticated mutations — Bearer requests cannot be forged cross-origin.
 - **AllExceptionsFilter** normalizes error bodies and maps Prisma errors (unique violation → 409, not found → 404) without leaking internals.
 

@@ -6,7 +6,7 @@ import { Request } from 'express';
 import { IS_OPTIONAL_AUTH_KEY, IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { AccessTokenPayload, AuthUser } from '../types/auth-user';
 
-export const ACCESS_COOKIE = 'gatherly_access';
+export const ACCESS_COOKIE = 'mkeplays_access';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {

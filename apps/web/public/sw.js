@@ -1,4 +1,4 @@
-/* Gatherly service worker — offline support.
+/* MKE Plays service worker — offline support.
  *
  * Strategy:
  *  - App shell + static assets: stale-while-revalidate
@@ -7,8 +7,8 @@
  *  - Navigations: network-first, falling back to the /offline page
  */
 const VERSION = 'v1';
-const STATIC_CACHE = `gatherly-static-${VERSION}`;
-const API_CACHE = `gatherly-api-${VERSION}`;
+const STATIC_CACHE = `mkeplays-static-${VERSION}`;
+const API_CACHE = `mkeplays-api-${VERSION}`;
 const OFFLINE_URL = '/offline';
 
 self.addEventListener('install', (event) => {

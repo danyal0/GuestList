@@ -128,7 +128,7 @@ export default function SettingsPage() {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const csrf = document.cookie.match(/gatherly_csrf=([^;]+)/)?.[1];
+      const csrf = document.cookie.match(/mkeplays_csrf=([^;]+)/)?.[1];
       const response = await fetch('/api/v1/uploads/image', {
         method: 'POST',
         body: formData,

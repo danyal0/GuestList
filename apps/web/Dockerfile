@@ -22,14 +22,14 @@ ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
-RUN groupadd --system gatherly && useradd --system --gid gatherly gatherly
+RUN groupadd --system mkeplays && useradd --system --gid mkeplays mkeplays
 
 # Next standalone output contains a minimal server + traced node_modules.
-COPY --from=build --chown=gatherly:gatherly /repo/apps/web/.next/standalone ./
-COPY --from=build --chown=gatherly:gatherly /repo/apps/web/.next/static ./apps/web/.next/static
-COPY --from=build --chown=gatherly:gatherly /repo/apps/web/public ./apps/web/public
+COPY --from=build --chown=mkeplays:mkeplays /repo/apps/web/.next/standalone ./
+COPY --from=build --chown=mkeplays:mkeplays /repo/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build --chown=mkeplays:mkeplays /repo/apps/web/public ./apps/web/public
 
-USER gatherly
+USER mkeplays
 EXPOSE 3000
 
 CMD ["node", "apps/web/server.js"]

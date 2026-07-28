@@ -5,7 +5,7 @@
 | Layer | Tooling | Location | Count |
 | --- | --- | --- | --- |
 | API unit | Jest + ts-jest | `apps/api/src/**/*.spec.ts` | 74 tests / 8 suites |
-| API integration | Supertest against a real Postgres (`gatherly_test`) | `apps/api/test/app.e2e-spec.ts` | 32 tests |
+| API integration | Supertest against a real Postgres (`mkeplays_test`) | `apps/api/test/app.e2e-spec.ts` | 32 tests |
 | Web unit/component | Jest + React Testing Library (jsdom) | `apps/web/src/**/*.test.ts(x)` | 49 tests / 5 suites |
 | Browser E2E | Playwright (Chromium + iPhone 13 WebKit) | `apps/web/e2e/*.spec.ts` | 9 scenarios × 2 projects = 18 |
 | Mobile | `tsc --noEmit` + `expo lint` + `expo export` (both platforms bundle) | `apps/mobile` | build-level gates |
@@ -38,7 +38,7 @@ All suites pass locally and run in CI (see `.github/workflows/ci.yml`).
 
 ```bash
 npm run test                 # API + web unit suites
-npm run test:e2e             # API integration (creates/migrates gatherly_test)
+npm run test:e2e             # API integration (creates/migrates mkeplays_test)
 cd apps/web && npx playwright test
 npm run test:cov -w apps/api # coverage
 ```

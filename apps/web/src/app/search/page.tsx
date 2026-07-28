@@ -36,7 +36,7 @@ function SearchContent() {
       {!query ? (
         <EmptyState
           icon={SearchIcon}
-          title="Search Gatherly"
+          title="Search MKE Plays"
           description="Communities, events and people — all in one place."
         />
       ) : results.isPending ? (

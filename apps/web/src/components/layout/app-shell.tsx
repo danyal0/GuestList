@@ -75,11 +75,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Top navigation — glass */}
       <header className="glass-subtle sticky top-0 z-40">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4">
-          <Link href="/" className="flex items-center gap-2" aria-label="Gatherly home">
+          <Link href="/" className="flex items-center gap-2" aria-label="MKE Plays home">
             <span className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-gradient-to-br from-[var(--color-accent)] to-[#5e5ce6] text-white">
               <Users className="h-4.5 w-4.5" aria-hidden />
             </span>
-            <span className="text-[19px] font-extrabold tracking-tight">Gatherly</span>
+            <span className="text-[19px] font-extrabold tracking-tight">MKE Plays</span>
           </Link>
 
           <nav aria-label="Primary" className="ml-6 hidden items-center gap-1 md:flex">

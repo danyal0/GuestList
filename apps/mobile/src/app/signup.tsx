@@ -60,7 +60,7 @@ export default function SignupScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={{ gap: 4 }}>
-          <Text style={{ fontSize: 28, fontWeight: '800', color: colors.ink }}>Join Gatherly</Text>
+          <Text style={{ fontSize: 28, fontWeight: '800', color: colors.ink }}>Join MKE Plays</Text>
           <Text style={{ fontSize: 15, color: colors.inkSecondary }}>
             Discover communities and events near you — free.
           </Text>

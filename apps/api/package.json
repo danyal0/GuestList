@@ -1,8 +1,8 @@
 {
-  "name": "@gatherly/api",
+  "name": "@mke-plays/api",
   "version": "1.0.0",
   "private": true,
-  "description": "Gatherly API — NestJS modular monolith",
+  "description": "MKE Plays API — NestJS modular monolith",
   "scripts": {
     "build": "nest build",
     "dev": "nest start --watch",

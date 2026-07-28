@@ -21,7 +21,7 @@ const passwordHash = await argon2.hash(PASSWORD);
 const users = [
   {
     id: 'user_admin',
-    email: 'admin@gatherly.app',
+    email: 'admin@mkeplays.app',
     name: 'Avery Admin',
     role: 'ADMIN',
     location: 'San Francisco, CA',
@@ -293,7 +293,7 @@ const eventsRaw = [
     address: '535 Mission St, San Francisco, CA',
     latitude: 37.7891,
     longitude: -122.3979,
-    onlineUrl: 'https://meet.gatherly.app/ml-guild-paper-night',
+    onlineUrl: 'https://meet.mkeplays.app/ml-guild-paper-night',
     startOffsetDays: 5,
     hours: 2,
     capacity: 60,
@@ -305,7 +305,7 @@ const eventsRaw = [
     title: 'Hands-on: Fine-tuning Open Models',
     description: 'Bring a laptop; leave with a fine-tuned model. Basic Python required.',
     mode: 'ONLINE',
-    onlineUrl: 'https://meet.gatherly.app/ml-guild-finetune',
+    onlineUrl: 'https://meet.mkeplays.app/ml-guild-finetune',
     startOffsetDays: 14,
     hours: 3,
     capacity: 100,

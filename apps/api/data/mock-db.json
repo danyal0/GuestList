@@ -7,7 +7,7 @@
   "users": [
     {
       "id": "user_admin",
-      "email": "admin@gatherly.app",
+      "email": "admin@mkeplays.app",
       "name": "Avery Admin",
       "role": "ADMIN",
       "location": "San Francisco, CA",
@@ -522,7 +522,7 @@
       "address": "535 Mission St, San Francisco, CA",
       "latitude": 37.7891,
       "longitude": -122.3979,
-      "onlineUrl": "https://meet.gatherly.app/ml-guild-paper-night",
+      "onlineUrl": "https://meet.mkeplays.app/ml-guild-paper-night",
       "timezone": "America/Los_Angeles",
       "startTime": "2026-07-31T04:04:16.594Z",
       "endTime": "2026-07-31T06:04:16.594Z",
@@ -551,7 +551,7 @@
       "address": null,
       "latitude": null,
       "longitude": null,
-      "onlineUrl": "https://meet.gatherly.app/ml-guild-finetune",
+      "onlineUrl": "https://meet.mkeplays.app/ml-guild-finetune",
       "timezone": "America/Los_Angeles",
       "startTime": "2026-08-09T04:04:16.594Z",
       "endTime": "2026-08-09T07:04:16.594Z",

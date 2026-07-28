@@ -79,7 +79,7 @@ function defaultSeedPath(): string {
 }
 
 function writablePath(): string {
-  return process.env.MOCK_DB_PATH || join('/tmp', 'gatherly-mock-db.json');
+  return process.env.MOCK_DB_PATH || join('/tmp', 'mkeplays-mock-db.json');
 }
 
 export class FileStore {

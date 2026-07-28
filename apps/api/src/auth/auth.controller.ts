@@ -32,7 +32,7 @@ import { AuthUser } from '../common/types/auth-user';
 import { ACCESS_COOKIE } from '../common/guards/jwt-auth.guard';
 import { CSRF_COOKIE } from '../common/guards/csrf.guard';
 
-const REFRESH_COOKIE = 'gatherly_refresh';
+const REFRESH_COOKIE = 'mkeplays_refresh';
 const REFRESH_COOKIE_PATH = '/api/v1/auth';
 
 interface AuthResponse {

@@ -1,4 +1,4 @@
-// Gatherly — enterprise schema
+// MKE Plays — enterprise schema
 // Conventions:
 // - cuid() primary keys (URL-safe, non-enumerable)
 // - soft deletes only where recovery matters (users, messages)

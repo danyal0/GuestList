@@ -1,8 +1,8 @@
 {
-  "name": "gatherly",
+  "name": "mkeplays",
   "version": "1.0.0",
   "private": true,
-  "description": "Gatherly — community discovery and events platform",
+  "description": "MKE Plays — community discovery and events platform",
   "license": "MIT",
   "engines": {
     "node": ">=20"

@@ -129,7 +129,7 @@ export class AuthService {
     const webUrl = this.config.get<string>('webUrl');
     await this.mailService.send({
       to: user.email,
-      subject: 'Reset your Gatherly password',
+      subject: 'Reset your MKE Plays password',
       heading: 'Reset your password',
       body: 'We received a request to reset your password. This link expires in 1 hour. If you did not make this request, you can safely ignore this email.',
       ctaLabel: 'Reset password',
@@ -256,9 +256,9 @@ export class AuthService {
     const webUrl = this.config.get<string>('webUrl');
     await this.mailService.send({
       to: user.email,
-      subject: 'Verify your Gatherly email',
-      heading: `Welcome to Gatherly, ${user.name.split(' ')[0]}!`,
-      body: 'Confirm your email address to unlock everything Gatherly has to offer. This link expires in 24 hours.',
+      subject: 'Verify your MKE Plays email',
+      heading: `Welcome to MKE Plays, ${user.name.split(' ')[0]}!`,
+      body: 'Confirm your email address to unlock everything MKE Plays has to offer. This link expires in 24 hours.',
       ctaLabel: 'Verify email',
       ctaUrl: `${webUrl}/verify-email?token=${token}`,
     });

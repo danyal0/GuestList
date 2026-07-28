@@ -1,6 +1,6 @@
 {
-  "name": "Gatherly",
-  "short_name": "Gatherly",
+  "name": "MKE Plays",
+  "short_name": "MKE Plays",
   "description": "Discover communities, join groups, and attend events near you.",
   "start_url": "/",
   "display": "standalone",

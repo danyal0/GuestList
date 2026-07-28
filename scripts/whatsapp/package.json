@@ -1,8 +1,8 @@
 {
-  "name": "gatherly-whatsapp-bot",
+  "name": "mkeplays-whatsapp-bot",
   "version": "1.0.0",
   "private": true,
-  "description": "Long-running WhatsApp ↔ Gatherly bridge (optional Railway sibling process)",
+  "description": "Long-running WhatsApp ↔ MKE Plays bridge (optional Railway sibling process)",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"

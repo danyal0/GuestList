@@ -32,11 +32,11 @@ export function eventToIcs(event: Event, url: string): string {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Gatherly//Events//EN',
+    'PRODID:-//MKE Plays//Events//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',
-    `UID:${event.id}@gatherly.app`,
+    `UID:${event.id}@mkeplays.app`,
     `DTSTAMP:${icsDate(new Date())}`,
     `DTSTART:${icsDate(event.startTime)}`,
     `DTEND:${icsDate(event.endTime)}`,

@@ -5,15 +5,15 @@ import { execSync } from 'child_process';
  * development database — data is wiped between test runs.
  */
 export default function globalSetup(): void {
-  const base = process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/gatherly?schema=public';
-  const testUrl = base.replace(/\/(\w+)(\?|$)/, '/gatherly_test$2');
+  const base = process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/mkeplays?schema=public';
+  const testUrl = base.replace(/\/(\w+)(\?|$)/, '/mkeplays_test$2');
   process.env.DATABASE_URL = testUrl;
 
   const url = new URL(testUrl);
   const admin = `postgresql://${url.username}:${url.password}@${url.host}/postgres`;
 
   execSync(
-    `psql "${admin}" -tc "SELECT 1 FROM pg_database WHERE datname='gatherly_test'" | grep -q 1 || psql "${admin}" -c "CREATE DATABASE gatherly_test"`,
+    `psql "${admin}" -tc "SELECT 1 FROM pg_database WHERE datname='mkeplays_test'" | grep -q 1 || psql "${admin}" -c "CREATE DATABASE mkeplays_test"`,
     { stdio: 'inherit', shell: '/bin/bash' },
   );
   execSync('npx prisma migrate deploy', {

@@ -17,7 +17,7 @@
 
 ## CSRF
 
-Web sessions use httpOnly cookies, so state-changing requests require the double-submit token: `gatherly_csrf` cookie (readable, random per login) must match the `X-CSRF-Token` header, compared with `timingSafeEqual`. Bearer-token requests (mobile) are exempt — they cannot be forged cross-origin.
+Web sessions use httpOnly cookies, so state-changing requests require the double-submit token: `mkeplays_csrf` cookie (readable, random per login) must match the `X-CSRF-Token` header, compared with `timingSafeEqual`. Bearer-token requests (mobile) are exempt — they cannot be forged cross-origin.
 
 ## Uploads
 

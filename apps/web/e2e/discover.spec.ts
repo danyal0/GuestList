@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test.describe('Discover', () => {
   test('home page renders the hero and content sections', async ({ page }) => {
     await page.goto('/');
-    await expect(page).toHaveTitle(/Gatherly/);
+    await expect(page).toHaveTitle(/MKE Plays/);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     await expect(page.getByRole('heading', { name: /happening soon/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: /popular communities/i })).toBeVisible();

@@ -49,11 +49,11 @@ async function bootstrap(): Promise<void> {
 
   if (process.env.NODE_ENV !== 'production') {
     const swaggerConfig = new DocumentBuilder()
-      .setTitle('Gatherly API')
+      .setTitle('MKE Plays API')
       .setDescription('Community discovery and events platform API')
       .setVersion('1.0')
       .addBearerAuth()
-      .addCookieAuth('gatherly_access')
+      .addCookieAuth('mkeplays_access')
       .build();
     const document = SwaggerModule.createDocument(app, swaggerConfig);
     SwaggerModule.setup('api/docs', app, document);
@@ -64,7 +64,7 @@ async function bootstrap(): Promise<void> {
   const port = Number(process.env.PORT ?? 4000);
   await app.listen(port, '0.0.0.0');
   // eslint-disable-next-line no-console
-  console.log(`Gatherly API listening on :${port}`);
+  console.log(`MKE Plays API listening on :${port}`);
 }
 
 void bootstrap();

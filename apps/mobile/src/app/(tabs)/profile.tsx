@@ -34,7 +34,7 @@ export default function ProfileScreen() {
       <View style={{ flex: 1, justifyContent: 'center' }}>
         <EmptyState
           icon="person-circle-outline"
-          title="Welcome to Gatherly"
+          title="Welcome to MKE Plays"
           description="Sign in to join communities, RSVP to events, and message your people."
           actionTitle="Sign in"
           onAction={() => router.push('/login')}

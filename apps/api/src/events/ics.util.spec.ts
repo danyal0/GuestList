@@ -34,7 +34,7 @@ function makeEvent(overrides: Partial<Event> = {}): Event {
 
 describe('eventToIcs', () => {
   it('renders a valid VCALENDAR wrapper with CRLF line endings', () => {
-    const ics = eventToIcs(makeEvent(), 'https://gatherly.app/events/evt_1');
+    const ics = eventToIcs(makeEvent(), 'https://mkeplays.app/events/evt_1');
     expect(ics.startsWith('BEGIN:VCALENDAR')).toBe(true);
     expect(ics.trimEnd().endsWith('END:VCALENDAR')).toBe(true);
     expect(ics).toContain('\r\n');

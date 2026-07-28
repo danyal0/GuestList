@@ -37,7 +37,7 @@ export async function api<T>(
     headers.set('Content-Type', 'application/json');
   }
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
-    const csrf = readCookie('gatherly_csrf');
+    const csrf = readCookie('mkeplays_csrf');
     if (csrf) headers.set('X-CSRF-Token', csrf);
   }
 
@@ -79,7 +79,7 @@ export async function refreshSession(): Promise<boolean> {
   refreshPromise ??= (async () => {
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      const csrf = readCookie('gatherly_csrf');
+      const csrf = readCookie('mkeplays_csrf');
       if (csrf) headers['X-CSRF-Token'] = csrf;
 
       const response = await fetch('/api/v1/auth/refresh', {

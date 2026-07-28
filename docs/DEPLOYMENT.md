@@ -1,6 +1,6 @@
 # Deployment Guide (Railway)
 
-Gatherly deploys as **one Railway app service** (+ optional Postgres later).
+MKE Plays deploys as **one Railway app service** (+ optional Postgres later).
 
 By default the API uses **file-backed mock data** from `apps/api/data/mock-db.json` — no database required. When you are ready, set `DATA_SOURCE=postgres` and `DATABASE_URL`.
 
@@ -47,7 +47,7 @@ Leave `NEXT_PUBLIC_API_URL` **unset** so Socket.IO uses the same origin.
 Password for all: `Passw0rd!`
 
 - `maya@example.com` — member
-- `admin@gatherly.app` — platform admin
+- `admin@mkeplays.app` — platform admin
 
 ## 3. When you add Postgres
 

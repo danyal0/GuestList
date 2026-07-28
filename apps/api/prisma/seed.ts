@@ -3,7 +3,7 @@
  * Idempotent: wipes and recreates deterministic demo content.
  *
  * Logins (password for everyone: Passw0rd!):
- *   admin@gatherly.app   — platform admin
+ *   admin@mkeplays.app   — platform admin
  *   maya@example.com … leo@example.com — regular members
  */
 import { PrismaClient, GroupCategory, GroupPrivacy, GroupMemberRole, EventMode, RsvpStatus, UserRole, ConversationType, ActivityType } from '@prisma/client';
@@ -14,7 +14,7 @@ const prisma = new PrismaClient();
 const PASSWORD = 'Passw0rd!';
 
 const USERS = [
-  { email: 'admin@gatherly.app', name: 'Avery Admin', role: UserRole.ADMIN, location: 'San Francisco, CA', latitude: 37.7749, longitude: -122.4194, interests: ['technology', 'community'], skills: ['moderation'] },
+  { email: 'admin@mkeplays.app', name: 'Avery Admin', role: UserRole.ADMIN, location: 'San Francisco, CA', latitude: 37.7749, longitude: -122.4194, interests: ['technology', 'community'], skills: ['moderation'] },
   { email: 'maya@example.com', name: 'Maya Chen', role: UserRole.USER, location: 'San Francisco, CA', latitude: 37.7793, longitude: -122.4192, interests: ['photography', 'hiking', 'technology'], skills: ['photo editing', 'javascript'] },
   { email: 'diego@example.com', name: 'Diego Ramirez', role: UserRole.USER, location: 'Oakland, CA', latitude: 37.8044, longitude: -122.2712, interests: ['soccer', 'cooking', 'music'], skills: ['guitar', 'spanish'] },
   { email: 'priya@example.com', name: 'Priya Sharma', role: UserRole.USER, location: 'San Jose, CA', latitude: 37.3382, longitude: -121.8863, interests: ['machine learning', 'books', 'yoga'], skills: ['python', 'public speaking'] },
@@ -182,13 +182,13 @@ async function main(): Promise<void> {
       group: groups[1], hostEmail: 'priya@example.com', title: 'Paper Night: Attention Is All You Need, Revisited',
       description: 'We revisit the transformer paper with 2026 eyes: what held up, what did not, and what the field learned. Short talks + open discussion. Streamed live.',
       mode: EventMode.HYBRID, locationName: 'Founders Hub SoMa', address: '535 Mission St, San Francisco, CA',
-      latitude: 37.7891, longitude: -122.3979, onlineUrl: 'https://meet.gatherly.app/ml-guild-paper-night',
+      latitude: 37.7891, longitude: -122.3979, onlineUrl: 'https://meet.mkeplays.app/ml-guild-paper-night',
       start: now + 5 * day, hours: 2, capacity: 60,
     },
     {
       group: groups[1], hostEmail: 'priya@example.com', title: 'Hands-on: Fine-tuning Open Models',
       description: 'Bring a laptop; leave with a fine-tuned model. GPUs provided via cloud credits. Basic Python required.',
-      mode: EventMode.ONLINE, onlineUrl: 'https://meet.gatherly.app/ml-guild-finetune',
+      mode: EventMode.ONLINE, onlineUrl: 'https://meet.mkeplays.app/ml-guild-finetune',
       start: now + 14 * day, hours: 3, capacity: 100,
     },
     {

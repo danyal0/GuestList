@@ -61,7 +61,7 @@ export function HomeContent() {
             <div className="mt-6 flex flex-wrap gap-3">
               <Button asChild size="lg" variant="glass" className="text-white">
                 <Link href="/signup">
-                  Join Gatherly free <ArrowRight className="h-4 w-4" aria-hidden />
+                  Join MKE Plays free <ArrowRight className="h-4 w-4" aria-hidden />
                 </Link>
               </Button>
             </div>
@@ -173,7 +173,7 @@ export function HomeContent() {
           <EmptyState
             icon={Users}
             title="No communities yet"
-            description="Start the first community on Gatherly."
+            description="Start the first community on MKE Plays."
           />
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

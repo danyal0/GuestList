@@ -25,7 +25,7 @@ export class MailService {
 
   constructor(private readonly config: ConfigService) {
     const host = this.config.get<string>('mail.host');
-    this.from = this.config.get<string>('mail.from') ?? 'Gatherly <no-reply@gatherly.app>';
+    this.from = this.config.get<string>('mail.from') ?? 'MKE Plays <no-reply@mkeplays.app>';
 
     if (host) {
       this.transporter = nodemailer.createTransport({
@@ -73,12 +73,12 @@ export class MailService {
       : '';
     return `<!doctype html><html><body style="margin:0;padding:32px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
       <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:20px;padding:40px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
-        <p style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#0a84ff;margin:0 0 16px">Gatherly</p>
+        <p style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#0a84ff;margin:0 0 16px">MKE Plays</p>
         <h1 style="font-size:24px;font-weight:700;color:#1d1d1f;margin:0 0 12px">${o.heading}</h1>
         <p style="font-size:16px;line-height:1.6;color:#515154;margin:0">${o.body}</p>
         ${cta}
       </div>
-      <p style="text-align:center;font-size:12px;color:#86868b;margin-top:24px">© ${new Date().getFullYear()} Gatherly</p>
+      <p style="text-align:center;font-size:12px;color:#86868b;margin-top:24px">© ${new Date().getFullYear()} MKE Plays</p>
     </body></html>`;
   }
 }

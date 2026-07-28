@@ -14,7 +14,7 @@ interface Session {
   userId: string;
 }
 
-describe('Gatherly API (e2e)', () => {
+describe('MKE Plays API (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let http: ReturnType<INestApplication['getHttpServer']>;
@@ -58,7 +58,7 @@ describe('Gatherly API (e2e)', () => {
     prisma = app.get(PrismaService);
     http = app.getHttpServer();
 
-    // Clean slate — the suite owns the gatherly_test database.
+    // Clean slate — the suite owns the mkeplays_test database.
     await prisma.$executeRawUnsafe(`
       TRUNCATE TABLE "audit_logs", "activity_logs", "payments", "reports", "notifications",
         "friendships", "messages", "conversation_participants", "conversations",

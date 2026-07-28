@@ -3,7 +3,7 @@ import { Request } from 'express';
 import { timingSafeEqual } from 'crypto';
 import { AuthUser } from '../types/auth-user';
 
-export const CSRF_COOKIE = 'gatherly_csrf';
+export const CSRF_COOKIE = 'mkeplays_csrf';
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /**

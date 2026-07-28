@@ -41,7 +41,7 @@ const children = [];
 let shuttingDown = false;
 
 function log(message) {
-  console.log(`[gatherly] ${message}`);
+  console.log(`[mkeplays] ${message}`);
 }
 
 function isApiPath(urlPath) {
@@ -283,6 +283,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('[gatherly] failed to start', err);
+  console.error('[mkeplays] failed to start', err);
   shutdown(1);
 });
