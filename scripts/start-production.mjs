@@ -95,6 +95,14 @@ function spawnProcess(label, command, args, env = {}, opts = {}) {
 function spawnWhatsappBot() {
   if (!WHATSAPP_BOT_ENABLED) return;
 
+  const authPath =
+    process.env.WHATSAPP_AUTH_PATH || '/data/wwebjs_auth';
+  try {
+    fs.mkdirSync(authPath, { recursive: true });
+  } catch (err) {
+    log(`warning: could not create WhatsApp auth dir ${authPath}: ${err.message}`);
+  }
+
   const botDir = path.resolve(__dirname, 'whatsapp');
   spawnProcess(
     'whatsapp-bot',
@@ -104,8 +112,7 @@ function spawnWhatsappBot() {
       // Hit Next.js directly inside the container (bypass public proxy).
       APP_BASE_URL:
         process.env.APP_BASE_URL || `http://127.0.0.1:${WEB_PORT}`,
-      WHATSAPP_AUTH_PATH:
-        process.env.WHATSAPP_AUTH_PATH || '/data/wwebjs_auth',
+      WHATSAPP_AUTH_PATH: authPath,
       PUPPETEER_EXECUTABLE_PATH:
         process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
       PUPPETEER_SKIP_DOWNLOAD: 'true',
