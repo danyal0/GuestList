@@ -1,9 +1,11 @@
 'use client';
 
+import * as React from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, Check } from 'lucide-react';
-import { api } from '@/lib/api';
+import { toast } from 'sonner';
+import { api, ApiError } from '@/lib/api';
 import type { Notification, Paginated } from '@/lib/types';
 import { cn, formatRelative } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth-store';
@@ -21,9 +23,16 @@ function notificationLink(notification: Notification): string | null {
   return null;
 }
 
+function friendRequestTargetId(payload: Record<string, unknown>): string | null {
+  if (typeof payload.friendshipId === 'string' && payload.friendshipId) return payload.friendshipId;
+  if (typeof payload.fromUserId === 'string' && payload.fromUserId) return payload.fromUserId;
+  return null;
+}
+
 export default function NotificationsPage() {
   const queryClient = useQueryClient();
   const { user, hydrated } = useAuthStore();
+  const [responded, setResponded] = React.useState<Record<string, 'accepted' | 'declined'>>({});
 
   const notifications = useQuery({
     queryKey: ['notifications'],
@@ -31,9 +40,29 @@ export default function NotificationsPage() {
     enabled: !!user,
   });
 
+  const pendingFriendRequests = useQuery({
+    queryKey: ['friend-requests-pending'],
+    queryFn: () =>
+      api<Array<{ id: string; requesterId: string }>>('/profiles/me/friend-requests'),
+    enabled: !!user,
+  });
+
+  const isPendingFriendRequest = (payload: Record<string, unknown>) => {
+    const items = pendingFriendRequests.data ?? [];
+    const friendshipId = typeof payload.friendshipId === 'string' ? payload.friendshipId : null;
+    const fromUserId = typeof payload.fromUserId === 'string' ? payload.fromUserId : null;
+    return items.some(
+      (r) =>
+        (friendshipId && r.id === friendshipId) ||
+        (fromUserId && r.requesterId === fromUserId),
+    );
+  };
+
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ['notifications'] });
     void queryClient.invalidateQueries({ queryKey: ['unread-count'] });
+    void queryClient.invalidateQueries({ queryKey: ['profile'] });
+    void queryClient.invalidateQueries({ queryKey: ['friend-requests-pending'] });
   };
 
   const markRead = useMutation({
@@ -45,6 +74,34 @@ export default function NotificationsPage() {
   const markAllRead = useMutation({
     mutationFn: () => api('/notifications/read-all', { method: 'POST', body: '{}' }),
     onSuccess: invalidate,
+  });
+
+  const respondFriend = useMutation({
+    mutationFn: async ({
+      targetId,
+      accept,
+      notificationId,
+    }: {
+      targetId: string;
+      accept: boolean;
+      notificationId: string;
+    }) => {
+      await api(`/profiles/friend-requests/${targetId}/${accept ? 'accept' : 'decline'}`, {
+        method: 'POST',
+        body: '{}',
+      });
+      if (!notifications.data?.items.find((n) => n.id === notificationId)?.read) {
+        await api(`/notifications/${notificationId}/read`, { method: 'POST', body: '{}' });
+      }
+      return accept ? 'accepted' : 'declined';
+    },
+    onSuccess: (status, vars) => {
+      setResponded((prev) => ({ ...prev, [vars.notificationId]: status }));
+      toast.success(status === 'accepted' ? 'Friend request accepted' : 'Friend request declined');
+      invalidate();
+    },
+    onError: (error) =>
+      toast.error(error instanceof ApiError ? error.message : 'Could not update friend request'),
   });
 
   if (hydrated && !user) {
@@ -90,51 +147,142 @@ export default function NotificationsPage() {
               title: 'Notification',
             };
             const href = notificationLink(notification);
-            const content = (
-              <div
-                className={cn(
-                  'flex items-start gap-3 p-4 transition-colors',
-                  href && 'hover:bg-[var(--color-surface-2)]',
-                  !notification.read && 'bg-[var(--color-accent-soft)]/40',
-                )}
-              >
-                <span
-                  aria-hidden
-                  className={cn(
-                    'mt-2 h-2 w-2 shrink-0 rounded-full',
-                    notification.read ? 'bg-transparent' : 'bg-[var(--color-accent)]',
-                  )}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[15px] font-semibold">{described.title}</p>
-                  {described.body && (
-                    <p className="truncate text-[14px] text-[var(--color-ink-secondary)]">
-                      {described.body}
-                    </p>
-                  )}
-                  <time
-                    dateTime={notification.createdAt}
-                    className="text-[12px] text-[var(--color-ink-tertiary)]"
-                  >
-                    {formatRelative(notification.createdAt)}
-                  </time>
-                </div>
-              </div>
-            );
+            const isFriendRequest = notification.type === 'FRIEND_REQUEST';
+            const friendTarget = isFriendRequest
+              ? friendRequestTargetId(notification.payload)
+              : null;
+            const response = responded[notification.id];
+
             return (
               <li key={notification.id}>
-                {href ? (
-                  <Link href={href} onClick={() => !notification.read && markRead.mutate(notification.id)}>
-                    {content}
-                  </Link>
-                ) : (
-                  <button
-                    className="w-full text-left"
-                    onClick={() => !notification.read && markRead.mutate(notification.id)}
-                  >
-                    {content}
-                  </button>
-                )}
+                <div
+                  className={cn(
+                    'flex items-start gap-3 p-4 transition-colors',
+                    !notification.read && 'bg-[var(--color-accent-soft)]/40',
+                  )}
+                >
+                  <span
+                    aria-hidden
+                    className={cn(
+                      'mt-2 h-2 w-2 shrink-0 rounded-full',
+                      notification.read ? 'bg-transparent' : 'bg-[var(--color-accent)]',
+                    )}
+                  />
+                  <div className="min-w-0 flex-1">
+                    {href && !isFriendRequest ? (
+                      <Link
+                        href={href}
+                        className="block hover:opacity-90"
+                        onClick={() => !notification.read && markRead.mutate(notification.id)}
+                      >
+                        <p className="text-[15px] font-semibold">{described.title}</p>
+                        {described.body && (
+                          <p className="truncate text-[14px] text-[var(--color-ink-secondary)]">
+                            {described.body}
+                          </p>
+                        )}
+                      </Link>
+                    ) : (
+                      <div>
+                        {href ? (
+                          <Link
+                            href={href}
+                            className="text-[15px] font-semibold hover:text-[var(--color-accent)]"
+                            onClick={() => !notification.read && markRead.mutate(notification.id)}
+                          >
+                            {described.title}
+                          </Link>
+                        ) : (
+                          <p className="text-[15px] font-semibold">{described.title}</p>
+                        )}
+                        {described.body && (
+                          <p className="truncate text-[14px] text-[var(--color-ink-secondary)]">
+                            {described.body}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    <time
+                      dateTime={notification.createdAt}
+                      className="mt-0.5 block text-[12px] text-[var(--color-ink-tertiary)]"
+                    >
+                      {formatRelative(notification.createdAt)}
+                    </time>
+
+                    {isFriendRequest && friendTarget ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {(() => {
+                          if (response === 'accepted') {
+                            return (
+                              <span className="text-[13px] font-semibold text-[var(--color-success)]">
+                                Accepted
+                              </span>
+                            );
+                          }
+                          if (response === 'declined') {
+                            return (
+                              <span className="text-[13px] font-semibold text-[var(--color-ink-tertiary)]">
+                                Declined
+                              </span>
+                            );
+                          }
+                          const stillPending =
+                            pendingFriendRequests.isLoading ||
+                            !pendingFriendRequests.isSuccess ||
+                            isPendingFriendRequest(notification.payload);
+                          if (!stillPending) {
+                            return (
+                              <span className="text-[13px] font-semibold text-[var(--color-ink-tertiary)]">
+                                Already responded
+                              </span>
+                            );
+                          }
+                          return (
+                            <>
+                              <Button
+                                size="sm"
+                                loading={
+                                  respondFriend.isPending &&
+                                  respondFriend.variables?.notificationId === notification.id &&
+                                  respondFriend.variables.accept
+                                }
+                                disabled={respondFriend.isPending}
+                                onClick={() =>
+                                  respondFriend.mutate({
+                                    targetId: friendTarget,
+                                    accept: true,
+                                    notificationId: notification.id,
+                                  })
+                                }
+                              >
+                                Accept
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                loading={
+                                  respondFriend.isPending &&
+                                  respondFriend.variables?.notificationId === notification.id &&
+                                  !respondFriend.variables.accept
+                                }
+                                disabled={respondFriend.isPending}
+                                onClick={() =>
+                                  respondFriend.mutate({
+                                    targetId: friendTarget,
+                                    accept: false,
+                                    notificationId: notification.id,
+                                  })
+                                }
+                              >
+                                Decline
+                              </Button>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
               </li>
             );
           })}
