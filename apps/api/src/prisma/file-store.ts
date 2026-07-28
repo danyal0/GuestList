@@ -19,6 +19,7 @@ export interface MockDatabase {
   conversationParticipants: JsonRow[];
   messages: JsonRow[];
   friendships: JsonRow[];
+  userBlocks: JsonRow[];
   notifications: JsonRow[];
   reports: JsonRow[];
   auditLogs: JsonRow[];
@@ -65,6 +66,7 @@ const COLLECTION_MAP: Record<string, CollectionName> = {
   conversationParticipant: 'conversationParticipants',
   message: 'messages',
   friendship: 'friendships',
+  userBlock: 'userBlocks',
   notification: 'notifications',
   report: 'reports',
   auditLog: 'auditLogs',
@@ -78,6 +80,7 @@ const COMPOUND_UNIQUES: Record<string, string[]> = {
   eventId_userId: ['eventId', 'userId'],
   conversationId_userId: ['conversationId', 'userId'],
   requesterId_addresseeId: ['requesterId', 'addresseeId'],
+  blockerId_blockedId: ['blockerId', 'blockedId'],
 };
 
 function defaultSeedPath(): string {
@@ -137,6 +140,10 @@ export class FileStore {
     let changed = false;
     if (!Array.isArray(this.db.venues)) {
       this.db.venues = [];
+      changed = true;
+    }
+    if (!Array.isArray(this.db.userBlocks)) {
+      this.db.userBlocks = [];
       changed = true;
     }
 

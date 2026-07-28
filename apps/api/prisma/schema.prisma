@@ -189,6 +189,8 @@ model User {
   follows              Follow[]
   sentFriendRequests   Friendship[]              @relation("FriendRequester")
   receivedFriendRequests Friendship[]            @relation("FriendAddressee")
+  blocksCreated        UserBlock[]               @relation("Blocker")
+  blocksReceived       UserBlock[]               @relation("Blocked")
   reportsFiled         Report[]                  @relation("Reporter")
   reportsResolved      Report[]                  @relation("Resolver")
   auditLogs            AuditLog[]
@@ -468,6 +470,21 @@ model Friendship {
   @@unique([requesterId, addresseeId])
   @@index([addresseeId, status])
   @@map("friendships")
+}
+
+/// Peer block — hides social contact (friend requests / friends list) between users.
+model UserBlock {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  blocker User @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("user_blocks")
 }
 
 // ─────────────────────────── Notifications ───────────────────────────
