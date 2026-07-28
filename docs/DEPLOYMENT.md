@@ -78,3 +78,16 @@ PORT=8080 npm start
 
 - `GET /api/v1/health` → `{ status: "ok", database: "file" }` in mock mode  
   or `database: "up"` with Postgres.
+
+## WhatsApp bot (separate host)
+
+Do **not** run `whatsapp-web.js` inside the Railway app service. It needs a persistent Chromium session and would pull Puppeteer into the production image.
+
+Run the bot on a laptop/VPS:
+
+```bash
+npm run whatsapp:install
+npm run whatsapp:bot
+```
+
+Point `APP_BASE_URL` at your Railway public URL so the bot can POST to `/api/whatsapp/*`.

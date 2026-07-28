@@ -68,11 +68,14 @@ The dev client auto-targets your machine's API on port 4000; set `EXPO_PUBLIC_AP
 | `npm run test` | Jest unit tests (API + web) |
 | `npm run test:e2e` | API integration tests (Supertest, isolated `gatherly_test` DB) |
 | `npm run smoke:file` | Smoke-test file-backed API mode |
-| `npm run whatsapp:bot` | Long-running WhatsApp ↔ app bridge (`scripts/whatsapp-bot.js`) |
+| `npm run whatsapp:install` | Install bot-only deps (Puppeteer) — **not** used by Railway |
+| `npm run whatsapp:bot` | Long-running WhatsApp ↔ app bridge (`scripts/whatsapp/bot.js`) |
 
 ## WhatsApp tennis-group bridge
 
 A long-running Node process watches a WhatsApp group, classifies messages with xAI/Grok, and POSTs into Next.js routes that write Events / RSVPs via Prisma.
+
+**Important:** this bot is a **separate process** from the Railway web/API service. Bot deps (`whatsapp-web.js` → Puppeteer/Chromium) live under `scripts/whatsapp/` and are **not** installed on Railway, so they cannot bloat or crash the production container.
 
 ```bash
 # 1. Env for the bot (repo root)
@@ -86,7 +89,8 @@ cp .env.whatsapp.example .env
 # 3. Apply schema (User.phone + Event.whatsappMessageId)
 npm run db:migrate
 
-# 4. Link participant phones on User rows, then:
+# 4. Install bot deps locally (or on a dedicated always-on host), then:
+npm run whatsapp:install
 npm run whatsapp:bot   # scan QR on first run
 ```
 
