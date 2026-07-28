@@ -1,4 +1,9 @@
 import type { PrismaService } from '../prisma/prisma.service';
+import {
+  isPlausiblePhone,
+  phoneMatchWhere,
+  preferCanonicalPhone,
+} from '../common/utils/phone';
 import { digitsOnly } from './whatsapp-bot.guard';
 
 export type WhatsappUserIdentity = {
@@ -13,10 +18,6 @@ type UserRow = WhatsappUserIdentity & {
   email?: string | null;
   deletedAt?: Date | null;
 };
-
-function isPlausiblePhone(digits: string): boolean {
-  return digits.length >= 7 && digits.length <= 15;
-}
 
 const identitySelect = {
   id: true,
@@ -181,8 +182,8 @@ export async function findOrLinkWhatsappUser(
   if (phone) {
     byPhone = await prisma.user.findFirst({
       where: {
-        OR: [{ phone }, { phone: { endsWith: phone } }],
         deletedAt: null,
+        ...phoneMatchWhere(phone),
       },
       select: identitySelect,
     });
@@ -212,7 +213,7 @@ export async function findOrLinkWhatsappUser(
     const created = await prisma.user.create({
       data: {
         name: displayName,
-        phone: phone ?? null,
+        phone: phone ? preferCanonicalPhone(phone) : null,
         whatsappLid: lid ?? null,
         email: null,
         passwordHash: null,
@@ -225,16 +226,19 @@ export async function findOrLinkWhatsappUser(
     return created;
   }
 
+  const canonicalPhone = phone ? preferCanonicalPhone(phone) : null;
   const patch: { whatsappLid?: string; phone?: string; name?: string } = {};
   if (lid && user.whatsappLid !== lid) patch.whatsappLid = lid;
-  if (phone && user.phone !== phone) patch.phone = phone;
+  if (canonicalPhone && user.phone !== canonicalPhone) patch.phone = canonicalPhone;
   if (nameHint && nameHint.length >= 2 && nameHint.length <= 80 && user.name !== nameHint) {
-    const placeholder =
+    // Refresh display name for bridge / placeholder rows; never overwrite a password account's chosen name.
+    const canUpdateName =
+      !user.passwordHash ||
       !user.name ||
       user.name.startsWith('WhatsApp ') ||
       user.name === user.phone ||
       user.name === lid;
-    if (placeholder) patch.name = nameHint;
+    if (canUpdateName) patch.name = nameHint;
   }
 
   if (Object.keys(patch).length > 0) {
@@ -245,6 +249,28 @@ export async function findOrLinkWhatsappUser(
         select: identitySelect,
       });
     } catch {
+      // Unique conflict on phone/LID — another row owns it; merge instead of dropping the link.
+      let other: UserRow | null = null;
+      if (lid) {
+        other = await prisma.user.findFirst({
+          where: { whatsappLid: lid, deletedAt: null, NOT: { id: user.id } },
+          select: identitySelect,
+        });
+      }
+      if (!other && canonicalPhone) {
+        other = await prisma.user.findFirst({
+          where: { deletedAt: null, NOT: { id: user.id }, ...phoneMatchWhere(canonicalPhone) },
+          select: identitySelect,
+        });
+      }
+      if (other) {
+        const { survivor, loser } = pickSurvivor(user, other);
+        return mergeWhatsappUsers(prisma, survivor, loser, {
+          phone: canonicalPhone,
+          lid,
+          name: nameHint,
+        });
+      }
       user = await prisma.user.findFirstOrThrow({
         where: { id: user.id },
         select: identitySelect,
@@ -341,6 +367,8 @@ export type NamedProfileLinkSuggestion = {
   userId: string;
   name: string;
   clues: NamedProfileClue[];
+  /** How we matched this profile — drives signup/settings copy. */
+  match?: 'name' | 'phone';
 };
 
 function formatClueTime(date: Date): string {
@@ -491,6 +519,7 @@ export async function findNamedPlaceholderSuggestions(
       userId: placeholder.id,
       name: placeholder.name,
       clues,
+      match: 'name',
     });
     if (suggestions.length >= limit) break;
   }
@@ -498,8 +527,51 @@ export async function findNamedPlaceholderSuggestions(
 }
 
 /**
- * Fold a named placeholder into the signed-up account (RSVPs, hosted events).
- * Survivor keeps password/phone; any future WhatsApp LID still links via existing flows.
+ * Passwordless WhatsApp bridge row (phone and/or LID, no app password yet).
+ */
+export function isWhatsappOnlyUser(user: {
+  passwordHash?: string | null;
+  phone?: string | null;
+  whatsappLid?: string | null;
+  deletedAt?: Date | null;
+}): boolean {
+  if (user.deletedAt) return false;
+  if (user.passwordHash) return false;
+  return Boolean(user.phone || user.whatsappLid);
+}
+
+/** Named placeholder or WhatsApp-only bridge account that can be folded into a signup. */
+export function isClaimableWhatsappProfile(user: {
+  email?: string | null;
+  phone?: string | null;
+  whatsappLid?: string | null;
+  passwordHash?: string | null;
+  deletedAt?: Date | null;
+}): boolean {
+  if (user.deletedAt) return false;
+  if (user.passwordHash) return false;
+  return isNamedPlaceholder(user) || isWhatsappOnlyUser(user);
+}
+
+/**
+ * Build a link suggestion for a WhatsApp-only account that matched signup phone.
+ * Always returns a suggestion (even with no RSVP clues) so the user can attach LID history.
+ */
+export async function suggestionForWhatsappPhoneUser(
+  prisma: PrismaService,
+  waUser: { id: string; name: string },
+): Promise<NamedProfileLinkSuggestion> {
+  const clues = await buildNamedProfileClues(prisma, waUser.id);
+  return {
+    userId: waUser.id,
+    name: waUser.name,
+    clues,
+    match: 'phone',
+  };
+}
+
+/**
+ * Fold a named placeholder OR WhatsApp-only (phone/LID) profile into the signed-up account.
  */
 export async function claimNamedPlaceholder(
   prisma: PrismaService,
@@ -525,9 +597,9 @@ export async function claimNamedPlaceholder(
   if (!placeholder) {
     throw new Error('No matching unclaimed profile found');
   }
-  if (!isNamedPlaceholder(placeholder)) {
+  if (!isClaimableWhatsappProfile(placeholder)) {
     throw new Error(
-      'That profile is already linked to a phone, WhatsApp, or password account',
+      'That profile is already linked to a password account',
     );
   }
   if (!survivor.passwordHash) {
@@ -536,7 +608,7 @@ export async function claimNamedPlaceholder(
 
   return mergeWhatsappUsers(prisma, survivor, placeholder, {
     phone: survivor.phone,
-    lid: survivor.whatsappLid,
+    lid: placeholder.whatsappLid || survivor.whatsappLid,
     name: survivor.name,
   });
 }

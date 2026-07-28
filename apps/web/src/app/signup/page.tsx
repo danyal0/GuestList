@@ -72,7 +72,7 @@ export default function SignupPage() {
     return (
       <AuthCard
         title="Link prior activity?"
-        subtitle="We found WhatsApp RSVPs under a matching name. Confirm to keep that history."
+        subtitle="We found WhatsApp activity for your phone or name. Confirm to keep that history on this account."
       >
         <div className="space-y-4">
           <NamedProfileLinkCard

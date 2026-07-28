@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { UpdateUserDto } from './dto/user.dto';
 import { Paginated, paginate } from '../common/dto/pagination.dto';
-import { isPlausiblePhone, normalizePhoneDigits } from '../common/utils/phone';
+import { isPlausiblePhone, normalizePhoneDigits, phoneMatchWhere, preferCanonicalPhone } from '../common/utils/phone';
 
 /** Fields safe to expose on any user object returned to other users. */
 export const publicUserSelect = {
@@ -78,12 +78,17 @@ export class UsersService {
   async updateMe(userId: string, dto: UpdateUserDto): Promise<User> {
     let phone: string | undefined;
     if (dto.phone !== undefined) {
-      const normalized = normalizePhoneDigits(dto.phone);
-      if (!normalized || !isPlausiblePhone(normalized)) {
-        throw new BadRequestException('Enter a valid phone number');
-      }
+      const normalized = preferCanonicalPhone(
+        (() => {
+          const digits = normalizePhoneDigits(dto.phone);
+          if (!digits || !isPlausiblePhone(digits)) {
+            throw new BadRequestException('Enter a valid phone number');
+          }
+          return digits;
+        })(),
+      );
       const taken = await this.prisma.user.findFirst({
-        where: { phone: normalized, NOT: { id: userId }, deletedAt: null },
+        where: { ...phoneMatchWhere(normalized), NOT: { id: userId }, deletedAt: null },
         select: {
           id: true,
           name: true,
@@ -94,7 +99,7 @@ export class UsersService {
       });
       if (taken) {
         // Link phone → claim passwordless WhatsApp-provisioned account's LID.
-        if (!taken.passwordHash && taken.whatsappLid) {
+        if (!taken.passwordHash) {
           const { mergeWhatsappUsers } = await import('../whatsapp/whatsapp-identity');
           const me = await this.prisma.user.findFirstOrThrow({
             where: { id: userId },

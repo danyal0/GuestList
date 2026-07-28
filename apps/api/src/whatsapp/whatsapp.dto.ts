@@ -161,6 +161,10 @@ export class WhatsappRsvpDto {
 
   @IsOptional()
   @IsString()
+  reactorName?: string | null;
+
+  @IsOptional()
+  @IsString()
   status?: string;
 
   @IsOptional()

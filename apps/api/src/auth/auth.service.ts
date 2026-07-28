@@ -17,10 +17,13 @@ import { generateOpaqueToken, hashToken } from '../common/utils/tokens';
 import {
   isPlausiblePhone,
   normalizePhoneDigits,
+  phoneMatchWhere,
+  preferCanonicalPhone,
 } from '../common/utils/phone';
 import {
   claimNamedPlaceholder,
   findNamedPlaceholderSuggestions,
+  suggestionForWhatsappPhoneUser,
   type NamedProfileLinkSuggestion,
 } from '../whatsapp/whatsapp-identity';
 import { toAuthPublicUser } from '../users/users.service';
@@ -73,54 +76,73 @@ export class AuthService {
     input: { name: string; phone: string; password: string; email?: string },
     meta: RequestMeta,
   ): Promise<AuthResult> {
-    const phone = normalizePhoneDigits(input.phone);
-    if (!phone || !isPlausiblePhone(phone)) {
+    const rawPhone = normalizePhoneDigits(input.phone);
+    if (!rawPhone || !isPlausiblePhone(rawPhone)) {
       throw new BadRequestException('Enter a valid phone number');
     }
+    const phone = preferCanonicalPhone(rawPhone);
 
     const email =
       input.email && String(input.email).trim()
         ? String(input.email).toLowerCase().trim()
         : null;
 
-    const existingPhone = await this.prisma.user.findUnique({ where: { phone } });
+    // Match US 10-digit ↔ 11-digit variants so WhatsApp rows can't be duplicated at signup.
+    const existingPhone = await this.prisma.user.findFirst({
+      where: phoneMatchWhere(phone),
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        whatsappLid: true,
+        passwordHash: true,
+        email: true,
+        deletedAt: true,
+      },
+    });
+
+    let whatsappLinkCandidate: {
+      id: string;
+      name: string;
+      whatsappLid: string | null;
+    } | null = null;
+
     if (existingPhone) {
-      // Claim a WhatsApp-auto-provisioned account (no password yet).
-      if (!existingPhone.passwordHash && !existingPhone.deletedAt) {
-        const passwordHash = await argon2.hash(input.password);
-        const user = await this.prisma.user.update({
+      if (existingPhone.deletedAt) {
+        // Free unique phone/LID on soft-deleted rows so the number can be reused.
+        await this.prisma.user.update({
           where: { id: existingPhone.id },
-          data: {
-            name: input.name,
-            passwordHash,
-            email: email ?? existingPhone.email,
-            deletedAt: null,
-            suspendedAt: null,
-          },
+          data: { phone: null, whatsappLid: null },
         });
-        await this.prisma.activityLog.create({
-          data: { userId: user.id, type: ActivityType.SIGNUP },
+      } else if (existingPhone.passwordHash) {
+        throw new ConflictException('An account with this phone already exists');
+      } else {
+        // Passwordless WhatsApp bridge account — move the phone onto the new
+        // signup and offer to merge LID/RSVP history (same UX as named placeholders).
+        whatsappLinkCandidate = {
+          id: existingPhone.id,
+          name: existingPhone.name,
+          whatsappLid: existingPhone.whatsappLid,
+        };
+        await this.prisma.user.update({
+          where: { id: existingPhone.id },
+          data: { phone: null },
         });
-        if (email) await this.sendVerificationEmail(user);
-        await this.auditService.log({
-          actorId: user.id,
-          action: 'auth.signup_claim_whatsapp',
-          ip: meta.ip,
-        });
-        const tokens = await this.tokenService.issuePair(user, meta);
-        const linkSuggestions = await findNamedPlaceholderSuggestions(
-          this.prisma,
-          input.name,
-          { excludeUserId: user.id },
-        );
-        return { user: this.toPublicUser(user), tokens, linkSuggestions };
       }
-      throw new ConflictException('An account with this phone already exists');
     }
 
     if (email) {
       const existingEmail = await this.prisma.user.findUnique({ where: { email } });
-      if (existingEmail) throw new ConflictException('An account with this email already exists');
+      if (existingEmail && !existingEmail.deletedAt) {
+        // Roll back phone move if we already detached a WA row.
+        if (whatsappLinkCandidate) {
+          await this.prisma.user.update({
+            where: { id: whatsappLinkCandidate.id },
+            data: { phone },
+          }).catch(() => undefined);
+        }
+        throw new ConflictException('An account with this email already exists');
+      }
     }
 
     const passwordHash = await argon2.hash(input.password);
@@ -140,27 +162,80 @@ export class AuthService {
     if (email) {
       await this.sendVerificationEmail(user);
     }
-    await this.auditService.log({ actorId: user.id, action: 'auth.signup', ip: meta.ip });
+    await this.auditService.log({
+      actorId: user.id,
+      action: whatsappLinkCandidate ? 'auth.signup_with_whatsapp_phone_match' : 'auth.signup',
+      ip: meta.ip,
+      ...(whatsappLinkCandidate
+        ? { targetType: 'USER', targetId: whatsappLinkCandidate.id }
+        : {}),
+    });
 
     const tokens = await this.tokenService.issuePair(user, meta);
-    const linkSuggestions = await findNamedPlaceholderSuggestions(
-      this.prisma,
-      input.name,
-      { excludeUserId: user.id },
-    );
-    return { user: this.toPublicUser(user), tokens, linkSuggestions };
+    const linkSuggestions: NamedProfileLinkSuggestion[] = [];
+    if (whatsappLinkCandidate) {
+      linkSuggestions.push(
+        await suggestionForWhatsappPhoneUser(this.prisma, whatsappLinkCandidate),
+      );
+    }
+    const named = await findNamedPlaceholderSuggestions(this.prisma, input.name, {
+      excludeUserId: user.id,
+    });
+    for (const suggestion of named) {
+      if (!linkSuggestions.some((s) => s.userId === suggestion.userId)) {
+        linkSuggestions.push(suggestion);
+      }
+    }
+    return {
+      user: this.toPublicUser(user),
+      tokens,
+      linkSuggestions: linkSuggestions.length ? linkSuggestions : undefined,
+    };
   }
 
-  /** Profiles created from WhatsApp name mentions that may belong to this user. */
+  /** Profiles created from WhatsApp (name placeholders or phone/LID bridge) that may belong to this user. */
   async listNamedLinkSuggestions(userId: string): Promise<NamedProfileLinkSuggestion[]> {
     const me = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
-      select: { id: true, name: true },
+      select: { id: true, name: true, phone: true },
     });
     if (!me) throw new UnauthorizedException('Not authenticated');
-    return findNamedPlaceholderSuggestions(this.prisma, me.name, {
+
+    const suggestions: NamedProfileLinkSuggestion[] = [];
+
+    if (me.phone) {
+      const waMatch = await this.prisma.user.findFirst({
+        where: {
+          deletedAt: null,
+          passwordHash: null,
+          id: { not: me.id },
+          OR: [
+            ...phoneMatchWhere(me.phone).OR,
+            // After signup we may have moved the phone off the WA row; still surface LID-only
+            // bridge accounts that share the signup display name.
+            {
+              whatsappLid: { not: null },
+              phone: null,
+              name: { equals: me.name, mode: 'insensitive' },
+            },
+          ],
+        },
+        select: { id: true, name: true, phone: true, whatsappLid: true, passwordHash: true },
+      });
+      if (waMatch && (waMatch.phone || waMatch.whatsappLid)) {
+        suggestions.push(await suggestionForWhatsappPhoneUser(this.prisma, waMatch));
+      }
+    }
+
+    const named = await findNamedPlaceholderSuggestions(this.prisma, me.name, {
       excludeUserId: me.id,
     });
+    for (const suggestion of named) {
+      if (!suggestions.some((s) => s.userId === suggestion.userId)) {
+        suggestions.push(suggestion);
+      }
+    }
+    return suggestions;
   }
 
   /**
@@ -226,7 +301,9 @@ export class AuthService {
 
     const phone = normalizePhoneDigits(raw);
     if (phone && isPlausiblePhone(phone) && !raw.includes('@')) {
-      return this.prisma.user.findUnique({ where: { phone } });
+      return this.prisma.user.findFirst({
+        where: phoneMatchWhere(preferCanonicalPhone(phone)),
+      });
     }
 
     return this.prisma.user.findUnique({
