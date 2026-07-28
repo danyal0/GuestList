@@ -344,10 +344,32 @@ const RESCHEDULE_PATTERNS: Array<{ re: RegExp; direction: 'earlier' | 'later' | 
   { re: /\bmoving\s+(?:to|it\s+to)\b/i, direction: 'move' },
 ];
 
+/** Host is calling off a plan — wins over create even when time/venue are restated. */
+const CANCEL_PATTERNS: RegExp[] = [
+  /\b(?:is\s+)?cancell?ed\b/i,
+  /\bcancell?ing\b/i,
+  /\bcancel\b/i,
+  /\bcalled\s+off\b/i,
+  /\bcall\s+it\s+off\b/i,
+  /\bnot\s+happening\b/i,
+  /\bno\s+longer\s+happening\b/i,
+  /\brain(?:ed)?\s*out\b/i,
+  /\bwon'?t\s+(?:be\s+)?(?:happening|playing|making\s+it)\b/i,
+  /\bscrap(?:ping|ped)?\s+(?:the\s+)?(?:game|match|plan|session)\b/i,
+  /\bnever\s*mind\b.*\b(?:game|match|tennis|tonight|today)\b/i,
+  /\b(?:game|match|tennis|session|tonight|today)\b.*\bnever\s*mind\b/i,
+];
+
 export type RescheduleCue = {
   matched: boolean;
   confidence: number;
   direction: 'earlier' | 'later' | 'move' | null;
+  matchedPhrase: string | null;
+};
+
+export type CancelCue = {
+  matched: boolean;
+  confidence: number;
   matchedPhrase: string | null;
 };
 
@@ -372,6 +394,26 @@ export function detectRescheduleCues(
     }
   }
   return { matched: false, confidence: 0, direction: null, matchedPhrase: null };
+}
+
+/** Lexical detection that the host is cancelling an existing plan. */
+export function detectCancelCues(
+  messageBody: string | null | undefined,
+): CancelCue {
+  if (!messageBody?.trim()) {
+    return { matched: false, confidence: 0, matchedPhrase: null };
+  }
+  for (const re of CANCEL_PATTERNS) {
+    const m = messageBody.match(re);
+    if (m) {
+      return {
+        matched: true,
+        confidence: 0.95,
+        matchedPhrase: m[0]!,
+      };
+    }
+  }
+  return { matched: false, confidence: 0, matchedPhrase: null };
 }
 
 /** Pull Google Maps / Apple Maps short links from a WhatsApp body. */
