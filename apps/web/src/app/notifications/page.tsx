@@ -16,6 +16,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 function notificationLink(notification: Notification): string | null {
   const p = notification.payload;
+  if (notification.type === 'REPORT_CREATED' || notification.type === 'SYSTEM_ERROR') {
+    return '/admin';
+  }
+  if (typeof p.href === 'string' && p.href.startsWith('/')) return p.href;
   if (typeof p.eventId === 'string') return `/events/${p.eventId}`;
   if (typeof p.conversationId === 'string') return `/messages/${p.conversationId}`;
   if (typeof p.groupId === 'string') return `/groups/${p.groupId}`;

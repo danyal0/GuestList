@@ -3,7 +3,6 @@ import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
-import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
 import { PrismaService } from '../src/prisma/prisma.service';
 
 jest.setTimeout(30_000);
@@ -52,7 +51,6 @@ describe('MKE Plays API (e2e)', () => {
         transformOptions: { enableImplicitConversion: true },
       }),
     );
-    app.useGlobalFilters(new AllExceptionsFilter());
     await app.init();
 
     prisma = app.get(PrismaService);

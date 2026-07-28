@@ -37,7 +37,22 @@ function SessionBootstrap({ children }: { children: React.ReactNode }) {
 
     const onNotification = (notification: { type: string; payload: Record<string, unknown> }) => {
       const message = describeNotification(notification.type, notification.payload);
-      if (message) toast(message.title, { description: message.body });
+      if (!message) return;
+      const isStaffAlert =
+        notification.type === 'REPORT_CREATED' || notification.type === 'SYSTEM_ERROR';
+      toast(message.title, {
+        description: message.body,
+        ...(isStaffAlert
+          ? {
+              action: {
+                label: 'Backoffice',
+                onClick: () => {
+                  window.location.href = '/admin';
+                },
+              },
+            }
+          : {}),
+      });
     };
     socket.on('notification', onNotification);
     return () => {
@@ -84,6 +99,16 @@ export function describeNotification(
       return { title: `${str('fromName')} accepted your friend request` };
     case 'REPORT_RESOLVED':
       return { title: 'Your report was reviewed', body: str('resolution') };
+    case 'REPORT_CREATED':
+      return {
+        title: 'New report filed',
+        body: `${str('reporterName') || 'Someone'} reported a ${str('targetType').toLowerCase() || 'item'}: ${str('reason')}`,
+      };
+    case 'SYSTEM_ERROR':
+      return {
+        title: `Server error ${typeof payload.statusCode === 'number' ? payload.statusCode : ''}`.trim(),
+        body: str('message') || `${str('method')} ${str('path')}`.trim(),
+      };
     default:
       return null;
   }

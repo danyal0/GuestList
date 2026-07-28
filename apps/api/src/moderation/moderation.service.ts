@@ -8,6 +8,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { AdminAlertService } from '../admin/admin-alert.service';
 import { Paginated, paginate } from '../common/dto/pagination.dto';
 import { NOTIFY_EVENT, NotifyPayload } from '../notifications/notification.events';
 
@@ -17,6 +18,7 @@ export class ModerationService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly adminAlertService: AdminAlertService,
   ) {}
 
   async createReport(
@@ -35,9 +37,26 @@ export class ModerationService {
       throw new BadRequestException('You already have an open report for this content');
     }
 
-    return this.prisma.report.create({
+    const report = await this.prisma.report.create({
       data: { reporterId, targetType, targetId, reason, details },
     });
+
+    const reporter = await this.prisma.user.findUnique({
+      where: { id: reporterId },
+      select: { name: true },
+    });
+
+    void this.adminAlertService.notifyNewReport({
+      reportId: report.id,
+      reporterId,
+      reporterName: reporter?.name,
+      targetType,
+      targetId,
+      reason,
+      details,
+    });
+
+    return report;
   }
 
   async listReports(

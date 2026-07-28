@@ -4,18 +4,24 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
+  Injectable,
   Logger,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Request, Response } from 'express';
+import { AdminAlertService } from '../../admin/admin-alert.service';
 
 /**
  * Normalizes every error into a consistent JSON envelope and maps common
  * Prisma errors to proper HTTP semantics so internals never leak to clients.
+ * Rate-limited staff alerts fire for 5xx responses.
  */
 @Catch()
+@Injectable()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
+
+  constructor(private readonly adminAlertService: AdminAlertService) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
@@ -61,6 +67,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
       this.logger.error(exception.message, exception.stack);
     } else {
       this.logger.error(`Unknown exception: ${String(exception)}`);
+    }
+
+    if (status >= 500) {
+      const text = Array.isArray(message) ? message.join('; ') : message;
+      void this.adminAlertService.notifySystemError({
+        statusCode: status,
+        path: request.originalUrl || request.url,
+        method: request.method,
+        message: text,
+        error,
+      });
     }
 
     response.status(status).json({

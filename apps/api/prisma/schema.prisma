@@ -105,6 +105,8 @@ enum NotificationType {
   FRIEND_REQUEST
   FRIEND_ACCEPTED
   REPORT_RESOLVED
+  REPORT_CREATED
+  SYSTEM_ERROR
 }
 
 enum FriendshipStatus {
