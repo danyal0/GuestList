@@ -11,6 +11,10 @@
 
 'use strict';
 
+const path = require('path');
+
+// Prefer repo-root `.env`, then `scripts/whatsapp/.env`.
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 require('dotenv').config();
 
 const { Client, LocalAuth } = require('whatsapp-web.js');
@@ -358,17 +362,32 @@ function intentFromReactionEmoji(emoji) {
 const client = new Client({
   authStrategy: new LocalAuth({
     clientId: process.env.WHATSAPP_CLIENT_ID || 'gatherly-tennis-bot',
-    dataPath: process.env.WHATSAPP_AUTH_PATH || './.wwebjs_auth',
+    dataPath: process.env.WHATSAPP_AUTH_PATH || path.resolve(__dirname, '.wwebjs_auth'),
   }),
   puppeteer: {
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    executablePath:
+      process.env.PUPPETEER_EXECUTABLE_PATH ||
+      process.env.CHROMIUM_PATH ||
+      undefined,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-zygote',
+      '--single-process',
+    ],
   },
 });
 
 client.on('qr', (qr) => {
   console.log('\n[whatsapp-bot] Scan this QR with WhatsApp → Linked Devices:\n');
   qrcode.generate(qr, { small: true });
+  // Railway logs rarely render ASCII QR well — open this URL on your phone:
+  console.log(
+    `[whatsapp-bot] Or open: https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}\n`,
+  );
 });
 
 client.on('authenticated', () => {

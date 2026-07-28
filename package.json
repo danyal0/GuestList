@@ -31,12 +31,8 @@
     "db:seed": "npm run prisma:seed -w apps/api",
     "db:generate": "npm run prisma:generate -w apps/api",
     "smoke:file": "node scripts/smoke-file-mode.mjs",
-    "whatsapp:bot": "node scripts/whatsapp-bot.js"
-  },
-  "dependencies": {
-    "dotenv": "^16.4.7",
-    "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "^1.26.0"
+    "whatsapp:install": "npm --prefix scripts/whatsapp install",
+    "whatsapp:bot": "npm --prefix scripts/whatsapp start"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

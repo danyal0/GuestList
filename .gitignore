@@ -52,3 +52,6 @@ apps/api/prisma/*.db
 # WhatsApp Web.js LocalAuth session (never commit)
 .wwebjs_auth/
 .wwebjs_cache/
+scripts/whatsapp/.wwebjs_auth/
+scripts/whatsapp/.wwebjs_cache/
+scripts/whatsapp/node_modules/

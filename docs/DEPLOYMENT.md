@@ -78,3 +78,38 @@ PORT=8080 npm start
 
 - `GET /api/v1/health` → `{ status: "ok", database: "file" }` in mock mode  
   or `database: "up"` with Postgres.
+
+## WhatsApp bot (Railway-only or separate host)
+
+The bot can run **inside the same Railway service** as a sibling process.
+
+### Option A — all on Railway (recommended for simplicity)
+
+1. Merge this branch and redeploy.
+2. Railway → service → **Variables**:
+
+| Variable | Value |
+| --- | --- |
+| `WHATSAPP_BOT_ENABLED` | `true` |
+| `WHATSAPP_BOT_TOKEN` | long random secret (same value used by Next.js routes) |
+| `WHATSAPP_GROUP_NAME` | `Tennis Group` (exact group title) |
+| `XAI_API_KEY` | from https://console.x.ai |
+| `WHATSAPP_DEFAULT_GROUP_ID` | cuid of your tennis community |
+| `DATABASE_URL` | Postgres URL (required for `/api/whatsapp/*` writes) |
+| `DATA_SOURCE` | `postgres` |
+| `PUPPETEER_EXECUTABLE_PATH` | `/usr/bin/chromium` (default in railpack) |
+
+3. Railway → service → **Volumes** (important): mount a volume at `/data` so WhatsApp login survives redeploys. Auth files go to `/data/wwebjs_auth`.
+4. Open **Deploy Logs**. On first boot look for `[whatsapp-bot] Or open: https://api.qrserver.com/...` — open that URL and scan with WhatsApp → Linked Devices.
+5. After “Ready”, leave it running. Bot crashes auto-restart without taking down the website.
+
+Use a Railway plan with **≥1–2 GB RAM** — Chromium is heavy.
+
+### Option B — laptop / VPS
+
+```bash
+npm run whatsapp:install
+npm run whatsapp:bot
+```
+
+Point `APP_BASE_URL` at your Railway public URL. Keep `WHATSAPP_BOT_ENABLED=false` on Railway.

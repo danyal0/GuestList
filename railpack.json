@@ -1,9 +1,21 @@
 {
   "$schema": "https://schema.railpack.com",
-  "buildAptPackages": ["openssl"],
+  "buildAptPackages": [
+    "openssl",
+    "chromium",
+    "fonts-liberation",
+    "fonts-noto-color-emoji",
+    "ca-certificates"
+  ],
   "deploy": {
     "startCommand": "npm start",
-    "aptPackages": ["openssl"],
+    "aptPackages": [
+      "openssl",
+      "chromium",
+      "fonts-liberation",
+      "fonts-noto-color-emoji",
+      "ca-certificates"
+    ],
     "variables": {
       "DATA_SOURCE": "file",
       "NODE_ENV": "production",
@@ -14,7 +26,10 @@
       "COOKIE_SECURE": "true",
       "NEXT_PUBLIC_SITE_URL": "https://mkeplays-production.up.railway.app",
       "JWT_ACCESS_SECRET": "mkeplays-dev-access-secret-change-me-32b",
-      "JWT_REFRESH_SECRET": "mkeplays-dev-refresh-secret-change-me-32b"
+      "JWT_REFRESH_SECRET": "mkeplays-dev-refresh-secret-change-me-32b",
+      "PUPPETEER_SKIP_DOWNLOAD": "true",
+      "PUPPETEER_EXECUTABLE_PATH": "/usr/bin/chromium",
+      "WHATSAPP_BOT_ENABLED": "false"
     }
   }
 }
