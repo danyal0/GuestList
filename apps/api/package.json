@@ -4,7 +4,7 @@
   "private": true,
   "description": "MKE Plays API — NestJS modular monolith",
   "scripts": {
-    "build": "nest build",
+    "build": "rm -rf dist && nest build",
     "dev": "nest start --watch",
     "start": "node scripts/start-prod.cjs",
     "start:prod": "node scripts/start-prod.cjs",
