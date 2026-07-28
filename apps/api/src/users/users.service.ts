@@ -44,10 +44,40 @@ export class UsersService {
         throw new BadRequestException('Enter a valid phone number');
       }
       const taken = await this.prisma.user.findFirst({
-        where: { phone: normalized, NOT: { id: userId } },
+        where: { phone: normalized, NOT: { id: userId }, deletedAt: null },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          whatsappLid: true,
+          passwordHash: true,
+        },
       });
-      if (taken) throw new ConflictException('That phone number is already in use');
-      phone = normalized;
+      if (taken) {
+        // Link phone → claim passwordless WhatsApp-provisioned account's LID.
+        if (!taken.passwordHash && taken.whatsappLid) {
+          const { mergeWhatsappUsers } = await import('../whatsapp/whatsapp-identity');
+          const me = await this.prisma.user.findFirstOrThrow({
+            where: { id: userId },
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              whatsappLid: true,
+              passwordHash: true,
+            },
+          });
+          await mergeWhatsappUsers(this.prisma, me, taken, {
+            phone: normalized,
+            lid: taken.whatsappLid,
+          });
+          phone = normalized;
+        } else {
+          throw new ConflictException('That phone number is already in use');
+        }
+      } else {
+        phone = normalized;
+      }
     }
 
     const user = await this.prisma.user.update({

@@ -200,8 +200,12 @@ export default function SettingsPage() {
           </div>
           <div className="flex justify-between gap-4">
             <dt className="text-[var(--color-ink-tertiary)]">WhatsApp</dt>
-            <dd className="font-medium">
-              {user.whatsappLinked ? 'Linked' : 'Not linked yet — message your tennis group'}
+            <dd className="font-medium text-right">
+              {user.whatsappLinked ? (
+                <>Linked{user.whatsappLid ? ` · LID …${user.whatsappLid.slice(-6)}` : ''}</>
+              ) : (
+                <>Not linked — send any message in your tennis WhatsApp group</>
+              )}
             </dd>
           </div>
           {user.email ? (
@@ -211,6 +215,10 @@ export default function SettingsPage() {
             </div>
           ) : null}
         </dl>
+        <p className="mt-3 text-[12px] leading-relaxed text-[var(--color-ink-tertiary)]">
+          WhatsApp identity is your LID. We create it from group messages even without a phone,
+          then attach your phone when you sign up or when WhatsApp shares it.
+        </p>
       </section>
 
       {/* Avatar */}
