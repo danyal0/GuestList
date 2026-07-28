@@ -24,8 +24,7 @@ process.env.PUBLIC_URL ??= PUBLIC_URL;
 process.env.WEB_URL ??= PUBLIC_URL;
 process.env.API_URL ??= PUBLIC_URL;
 process.env.CORS_ORIGINS ??= PUBLIC_URL;
-process.env.COOKIE_SECURE ??= 'true';
-process.env.NEXT_PUBLIC_SITE_URL ??= PUBLIC_URL;
+process.env.WHATSAPP_DEFAULT_TIMEZONE ??= 'America/Chicago';
 process.env.JWT_ACCESS_SECRET ??= 'mkeplays-dev-access-secret-change-me-32b';
 process.env.JWT_REFRESH_SECRET ??= 'mkeplays-dev-refresh-secret-change-me-32b';
 

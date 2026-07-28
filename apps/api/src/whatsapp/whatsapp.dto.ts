@@ -38,6 +38,46 @@ export class WhatsappCreateEventDto {
   venue?: string | null;
 
   @IsOptional()
+  @IsString()
+  locationName?: string | null;
+
+  @IsOptional()
+  @IsString()
+  address?: string | null;
+
+  @IsOptional()
+  @IsNumber()
+  latitude?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  longitude?: number | null;
+
+  @IsOptional()
+  @IsString()
+  instructions?: string | null;
+
+  @IsOptional()
+  @IsString()
+  notes?: string | null;
+
+  @IsOptional()
+  @IsString()
+  skillLevel?: string | null;
+
+  @IsOptional()
+  @IsString()
+  courtInfo?: string | null;
+
+  @IsOptional()
+  @IsNumber()
+  durationMinutes?: number | null;
+
+  @IsOptional()
+  @IsString()
+  timezone?: string | null;
+
+  @IsOptional()
   @IsNumber()
   confidence?: number;
 }
