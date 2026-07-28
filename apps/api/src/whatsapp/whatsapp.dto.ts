@@ -30,6 +30,16 @@ export class WhatsappCreateEventDto {
   @IsString()
   targetWhatsappMessageId?: string | null;
 
+  /** App event id when the reply quotes/links an in-app event. */
+  @IsOptional()
+  @IsString()
+  targetEventId?: string | null;
+
+  /** Body of the WhatsApp message being replied to. */
+  @IsOptional()
+  @IsString()
+  quotedText?: string | null;
+
   @IsOptional()
   @IsString()
   title?: string | null;

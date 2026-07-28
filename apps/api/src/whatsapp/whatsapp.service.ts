@@ -15,7 +15,9 @@ import {
   buildEventDescription,
   detectCancelCues,
   detectRescheduleCues,
+  extractEventIdFromText,
   extractMapsUrls,
+  hasPlaceCue,
   inferEventCapacity,
   mergeNamedAttendees,
   preferPmForTennisHour,
@@ -47,6 +49,10 @@ export class WhatsappService {
     whatsappMessageId?: string;
     /** Original invite message id when this message is a WhatsApp reply. */
     targetWhatsappMessageId?: string | null;
+    /** In-app event id (from /events/:id link in quote or body). */
+    targetEventId?: string | null;
+    /** Text of the WhatsApp message being replied to. */
+    quotedText?: string | null;
     title?: string | null;
     suggestedTime?: string | null;
     venue?: string | null;
@@ -81,6 +87,12 @@ export class WhatsappService {
     const targetWhatsappMessageId = String(
       body.targetWhatsappMessageId ?? '',
     ).trim();
+    const quotedText = String(body.quotedText ?? '').trim();
+    const targetEventId =
+      String(body.targetEventId ?? '').trim() ||
+      extractEventIdFromText(messageBody) ||
+      extractEventIdFromText(quotedText) ||
+      '';
 
     if ((!senderPhone && !senderLid) || !whatsappMessageId) {
       throw new BadRequestException({
@@ -161,16 +173,24 @@ export class WhatsappService {
       deriveTitleFromMessage(messageBody) ||
       'Tennis match';
 
-    const venueClue = [
-      body.venueSlug,
-      body.locationName,
-      body.venue,
-      body.address,
-      messageBody,
-    ]
-      .filter(Boolean)
-      .join(' ');
-    const catalogMatch = resolveCatalogVenue(venueClue);
+    const cancelCueEarly = detectCancelCues(messageBody);
+    const isCancelEarly =
+      cancelCueEarly.matched ||
+      Boolean(body.isCancel) ||
+      (typeof body.cancelConfidence === 'number' && body.cancelConfidence >= 0.7);
+
+    const venueClue = isCancelEarly
+      ? [body.venueSlug, body.locationName, body.venue, body.address]
+          .filter(Boolean)
+          .join(' ')
+      : [body.venueSlug, body.locationName, body.venue, body.address, messageBody]
+          .filter(Boolean)
+          .join(' ');
+    // Cancel-only ("its cancelled") must not invent a catalog venue from the
+    // message body — that poisons soft-matching against app-created events.
+    const catalogMatch = venueClue.trim()
+      ? resolveCatalogVenue(venueClue)
+      : null;
     const catalog = catalogMatch?.venue ?? null;
 
     // Strict: prefer verified catalog. Only keep free-form AI place when it
@@ -188,20 +208,25 @@ export class WhatsappService {
       venueId = upserted.id;
     }
 
-    const locationName =
-      catalog?.name ||
-      (venueConfidence !== null && venueConfidence >= 0.85
-        ? body.locationName?.trim() || body.venue?.trim() || null
-        : null) ||
-      process.env.WHATSAPP_DEFAULT_VENUE ||
-      null;
+    const locationName = isCancelEarly
+      ? catalog?.name ||
+        body.locationName?.trim() ||
+        body.venue?.trim() ||
+        null
+      : catalog?.name ||
+        (venueConfidence !== null && venueConfidence >= 0.85
+          ? body.locationName?.trim() || body.venue?.trim() || null
+          : null) ||
+        process.env.WHATSAPP_DEFAULT_VENUE ||
+        null;
 
-    const address =
-      catalog?.address ||
-      (aiHasStreet && (addressConfidence === null || addressConfidence >= 0.85)
-        ? aiAddress
-        : null) ||
-      locationName;
+    const address = isCancelEarly
+      ? catalog?.address || (aiHasStreet ? aiAddress : null) || locationName
+      : catalog?.address ||
+        (aiHasStreet && (addressConfidence === null || addressConfidence >= 0.85)
+          ? aiAddress
+          : null) ||
+        locationName;
 
     const latitude =
       catalog?.latitude ??
@@ -318,6 +343,8 @@ export class WhatsappService {
       hostId: host.id,
       groupId: group.id,
       targetWhatsappMessageId: targetWhatsappMessageId || null,
+      targetEventId: targetEventId || null,
+      quotedText: quotedText || null,
       venueId,
       locationName,
       address,
@@ -537,6 +564,8 @@ export class WhatsappService {
     hostId: string;
     groupId: string;
     targetWhatsappMessageId?: string | null;
+    targetEventId?: string | null;
+    quotedText?: string | null;
     venueId: string | null;
     locationName: string | null;
     address: string | null;
@@ -547,6 +576,34 @@ export class WhatsappService {
     /** When cancelling, accept a single clear host event more readily. */
     preferSingleCandidate?: boolean;
   }): Promise<(RescheduleCandidate & { score: number }) | null> {
+    const candidateSelect = {
+      id: true,
+      title: true,
+      startTime: true,
+      endTime: true,
+      locationName: true,
+      address: true,
+      venueId: true,
+      whatsappMessageId: true,
+      description: true,
+      capacity: true,
+    } as const;
+
+    if (opts.targetEventId) {
+      const byId = await this.prisma.event.findFirst({
+        where: {
+          id: opts.targetEventId,
+          status: 'PUBLISHED',
+          hostId: opts.hostId,
+        },
+        select: candidateSelect,
+      });
+      if (byId) {
+        this.logger.log(`Matched event by targetEventId=${opts.targetEventId}`);
+        return { ...byId, score: 1 };
+      }
+    }
+
     if (opts.targetWhatsappMessageId) {
       const byReply = await this.prisma.event.findFirst({
         where: {
@@ -554,42 +611,18 @@ export class WhatsappService {
           status: 'PUBLISHED',
           hostId: opts.hostId,
         },
-        select: {
-          id: true,
-          title: true,
-          startTime: true,
-          endTime: true,
-          locationName: true,
-          address: true,
-          venueId: true,
-          whatsappMessageId: true,
-          description: true,
-          capacity: true,
-        },
+        select: candidateSelect,
       });
       if (byReply) {
         return { ...byReply, score: 1 };
       }
-      // Description may reference the original invite id after prior updates.
       const byDesc = await this.prisma.event.findMany({
         where: {
           hostId: opts.hostId,
-          groupId: opts.groupId,
           status: 'PUBLISHED',
           description: { contains: opts.targetWhatsappMessageId },
         },
-        select: {
-          id: true,
-          title: true,
-          startTime: true,
-          endTime: true,
-          locationName: true,
-          address: true,
-          venueId: true,
-          whatsappMessageId: true,
-          description: true,
-          capacity: true,
-        },
+        select: candidateSelect,
         take: 5,
       });
       if (byDesc.length === 1) {
@@ -597,42 +630,121 @@ export class WhatsappService {
       }
     }
 
-    const windowStart = new Date(Date.now() - 2 * 60 * 60 * 1000);
-    const windowEnd = new Date(Date.now() + 48 * 60 * 60 * 1000);
+    const now = Date.now();
+    const windowStart = new Date(
+      now - (opts.preferSingleCandidate ? 12 : 2) * 60 * 60 * 1000,
+    );
+    const windowEnd = new Date(
+      now + (opts.preferSingleCandidate ? 14 : 2) * 24 * 60 * 60 * 1000,
+    );
+
+    // Cancel: search all of the host's published events (app-created ones may
+    // not be in the WhatsApp default group, and have no whatsappMessageId).
     const candidates = await this.prisma.event.findMany({
       where: {
         hostId: opts.hostId,
-        groupId: opts.groupId,
         status: 'PUBLISHED',
         startTime: { gte: windowStart, lte: windowEnd },
+        ...(opts.preferSingleCandidate ? {} : { groupId: opts.groupId }),
       },
-      select: {
-        id: true,
-        title: true,
-        startTime: true,
-        endTime: true,
-        locationName: true,
-        address: true,
-        venueId: true,
-        whatsappMessageId: true,
-        description: true,
-        capacity: true,
-      },
+      select: candidateSelect,
       orderBy: { startTime: 'asc' },
-      take: 25,
+      take: 40,
     });
 
+    if (candidates.length === 0) return null;
+
     if (opts.preferSingleCandidate && candidates.length === 1) {
-      return { ...candidates[0]!, score: 0.85 };
+      return { ...candidates[0]!, score: 0.9 };
     }
+
+    // Quote/body title hint for app-created events (no WhatsApp message id).
+    const titleHint = `${opts.quotedText || ''} ${opts.messageBody || ''}`.toLowerCase();
+    if (opts.preferSingleCandidate && titleHint.trim()) {
+      const titled = candidates
+        .map((c) => {
+          const title = (c.title || '').toLowerCase();
+          const loc = (c.locationName || '').toLowerCase();
+          let score = 0;
+          if (title && titleHint.includes(title.slice(0, Math.min(title.length, 24)))) {
+            score += 0.7;
+          }
+          if (loc && loc.length >= 4 && titleHint.includes(loc.slice(0, Math.min(loc.length, 16)))) {
+            score += 0.25;
+          }
+          return { ...c, score };
+        })
+        .filter((c) => c.score >= 0.7)
+        .sort((a, b) => b.score - a.score);
+      if (titled[0] && (!titled[1] || titled[0].score - titled[1].score >= 0.15)) {
+        return titled[0];
+      }
+    }
+
+    const messageHasPlaceCue = hasPlaceCue(opts.messageBody) || Boolean(opts.venueId);
+
+    // Cancel with no place/time in the message → soonest upcoming host event.
+    if (opts.preferSingleCandidate && !messageHasPlaceCue) {
+      const upcoming = candidates
+        .filter((c) => c.startTime.getTime() >= now - 2 * 60 * 60 * 1000)
+        .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+      if (upcoming.length === 1) {
+        return { ...upcoming[0]!, score: 0.88 };
+      }
+      if (upcoming.length >= 2) {
+        const gapHours =
+          (upcoming[1]!.startTime.getTime() - upcoming[0]!.startTime.getTime()) /
+          (60 * 60 * 1000);
+        // Prefer the next game when it's clearly sooner than the one after.
+        if (gapHours >= 4) {
+          return { ...upcoming[0]!, score: 0.82 };
+        }
+      }
+      // Fall back to sole / soonest event in the WhatsApp default group.
+      const groupOnly = await this.prisma.event.findMany({
+        where: {
+          hostId: opts.hostId,
+          groupId: opts.groupId,
+          status: 'PUBLISHED',
+          startTime: { gte: windowStart, lte: windowEnd },
+        },
+        select: candidateSelect,
+        orderBy: { startTime: 'asc' },
+        take: 10,
+      });
+      if (groupOnly.length === 1) {
+        return { ...groupOnly[0]!, score: 0.86 };
+      }
+      const groupUpcoming = groupOnly
+        .filter((c) => c.startTime.getTime() >= now - 2 * 60 * 60 * 1000)
+        .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+      if (groupUpcoming.length === 1) {
+        return { ...groupUpcoming[0]!, score: 0.86 };
+      }
+      if (groupUpcoming.length >= 2) {
+        const gapHours =
+          (groupUpcoming[1]!.startTime.getTime() -
+            groupUpcoming[0]!.startTime.getTime()) /
+          (60 * 60 * 1000);
+        if (gapHours >= 4) {
+          return { ...groupUpcoming[0]!, score: 0.8 };
+        }
+      }
+    }
+
+    // Don't let an invented venue poison cancel scoring when the message
+    // itself has no place words.
+    const scoreVenueId = messageHasPlaceCue ? opts.venueId : null;
+    const scoreLocation = messageHasPlaceCue ? opts.locationName : null;
+    const scoreAddress = messageHasPlaceCue ? opts.address : null;
 
     const scored = candidates
       .map((c) => ({
         ...c,
         score: scoreRescheduleCandidate(c, {
-          venueId: opts.venueId,
-          locationName: opts.locationName,
-          address: opts.address,
+          venueId: scoreVenueId,
+          locationName: scoreLocation,
+          address: scoreAddress,
           newStart: opts.startTime,
           messageBody: opts.messageBody,
           direction: opts.direction,
@@ -642,7 +754,7 @@ export class WhatsappService {
       .sort((a, b) => b.score - a.score);
 
     const best = scored[0];
-    const minScore = opts.preferSingleCandidate ? 0.55 : 0.7;
+    const minScore = opts.preferSingleCandidate ? 0.45 : 0.7;
     if (!best || best.score < minScore) return null;
     const second = scored[1];
     if (
