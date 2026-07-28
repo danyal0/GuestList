@@ -29,6 +29,22 @@ process.env.NEXT_PUBLIC_SITE_URL ??= PUBLIC_URL;
 process.env.JWT_ACCESS_SECRET ??= 'mkeplays-dev-access-secret-change-me-32b';
 process.env.JWT_REFRESH_SECRET ??= 'mkeplays-dev-refresh-secret-change-me-32b';
 
+// Persist file-mode DB on the Railway volume (same volume as WhatsApp auth).
+const repoRoot = path.resolve(__dirname, '..');
+process.env.MOCK_DB_SEED_PATH ??= path.join(
+  repoRoot,
+  'apps',
+  'api',
+  'data',
+  'mock-db.json',
+);
+process.env.MOCK_DB_PATH ??= path.join('/data', 'mock-db.json');
+try {
+  fs.mkdirSync('/data', { recursive: true });
+} catch {
+  // /data may be read-only locally; file-store falls back as needed.
+}
+
 const PUBLIC_PORT = Number(process.env.PORT || 8080);
 const API_PORT = Number(process.env.INTERNAL_API_PORT || 4000);
 const WEB_PORT = Number(process.env.INTERNAL_WEB_PORT || 3000);
@@ -46,8 +62,7 @@ function log(message) {
 
 function isApiPath(urlPath) {
   const pathName = urlPath.split('?')[0] ?? '';
-  // WhatsApp bridge lives on Next.js App Router handlers, not Nest.
-  if (pathName.startsWith('/api/whatsapp')) return false;
+  // WhatsApp bridge lives on Nest (file-DB aware). Keep /api/whatsapp on the API.
   return (
     pathName.startsWith('/api') ||
     pathName.startsWith('/uploads') ||
@@ -154,9 +169,9 @@ function spawnWhatsappBot() {
     'npm',
     ['start'],
     {
-      // Hit Next.js directly inside the container (bypass public proxy).
+      // Hit Nest API directly (file-DB + WhatsApp routes). Bypass public proxy.
       APP_BASE_URL:
-        process.env.APP_BASE_URL || `http://127.0.0.1:${WEB_PORT}`,
+        process.env.APP_BASE_URL || `http://127.0.0.1:${API_PORT}`,
       WHATSAPP_AUTH_PATH: authPath,
       PUPPETEER_EXECUTABLE_PATH:
         process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
@@ -318,7 +333,7 @@ async function main() {
     });
   });
 
-  // Start WhatsApp after the web routes it POSTs to are healthy.
+  // Start WhatsApp after the API routes it POSTs to are healthy.
   if (WHATSAPP_BOT_ENABLED) {
     log('WHATSAPP_BOT_ENABLED=true — starting in-process WhatsApp bridge');
     spawnWhatsappBot();

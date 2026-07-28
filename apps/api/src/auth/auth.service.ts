@@ -89,6 +89,9 @@ export class AuthService {
         phone,
         email,
         passwordHash,
+        deletedAt: null,
+        suspendedAt: null,
+        whatsappLid: null,
       },
     });
 

@@ -2,7 +2,9 @@
   "meta": {
     "version": 1,
     "passwordHint": "Passw0rd!",
-    "generatedAt": "2026-07-26T04:04:16.594Z"
+    "generatedAt": "2026-07-26T04:04:16.594Z",
+    "note": "File-backed mock DB. On Railway this is copied to /data/mock-db.json and persists across redeploys.",
+    "updatedForWhatsapp": "2026-07-28T19:16:23.037Z"
   },
   "users": [
     {
@@ -27,7 +29,9 @@
       "suspendedAt": null,
       "deletedAt": null,
       "createdAt": "2026-06-16T04:04:16.594Z",
-      "updatedAt": "2026-06-16T04:04:16.594Z"
+      "updatedAt": "2026-06-16T04:04:16.594Z",
+      "phone": "14145550001",
+      "whatsappLid": null
     },
     {
       "id": "user_maya",
@@ -53,7 +57,9 @@
       "suspendedAt": null,
       "deletedAt": null,
       "createdAt": "2026-06-17T04:04:16.594Z",
-      "updatedAt": "2026-06-17T04:04:16.594Z"
+      "updatedAt": "2026-06-17T04:04:16.594Z",
+      "phone": "14145550002",
+      "whatsappLid": null
     },
     {
       "id": "user_diego",
@@ -79,7 +85,9 @@
       "suspendedAt": null,
       "deletedAt": null,
       "createdAt": "2026-06-18T04:04:16.594Z",
-      "updatedAt": "2026-06-18T04:04:16.594Z"
+      "updatedAt": "2026-06-18T04:04:16.594Z",
+      "phone": "14145550003",
+      "whatsappLid": null
     },
     {
       "id": "user_priya",
@@ -105,7 +113,9 @@
       "suspendedAt": null,
       "deletedAt": null,
       "createdAt": "2026-06-19T04:04:16.594Z",
-      "updatedAt": "2026-06-19T04:04:16.594Z"
+      "updatedAt": "2026-06-19T04:04:16.594Z",
+      "phone": "14145550004",
+      "whatsappLid": null
     },
     {
       "id": "user_sam",
@@ -131,7 +141,9 @@
       "suspendedAt": null,
       "deletedAt": null,
       "createdAt": "2026-06-20T04:04:16.594Z",
-      "updatedAt": "2026-06-20T04:04:16.594Z"
+      "updatedAt": "2026-06-20T04:04:16.594Z",
+      "phone": "14145550005",
+      "whatsappLid": null
     },
     {
       "id": "user_leo",
@@ -157,12 +169,33 @@
       "suspendedAt": null,
       "deletedAt": null,
       "createdAt": "2026-06-21T04:04:16.594Z",
-      "updatedAt": "2026-06-21T04:04:16.594Z"
+      "updatedAt": "2026-06-21T04:04:16.594Z",
+      "phone": "14145550006",
+      "whatsappLid": null
     }
   ],
   "refreshTokens": [],
   "emailTokens": [],
   "groups": [
+    {
+      "id": "group_mke_tennis",
+      "slug": "mke-tennis-group",
+      "name": "MKE Tennis Group",
+      "description": "Pickup tennis matches around Milwaukee — courts, times, and RSVPs synced from our WhatsApp group. All levels welcome.",
+      "category": "SPORTS",
+      "privacy": "PUBLIC",
+      "location": "Milwaukee, WI",
+      "latitude": 43.0389,
+      "longitude": -87.9065,
+      "ownerId": "user_diego",
+      "rules": "1. RSVP honestly.\n2. Bring a can of balls when you can.\n3. Be kind on and off the court.",
+      "isVerified": false,
+      "memberCount": 1,
+      "coverImage": null,
+      "deletedAt": null,
+      "createdAt": "2026-07-28T19:16:23.037Z",
+      "updatedAt": "2026-07-28T19:16:23.037Z"
+    },
     {
       "id": "group_trails",
       "slug": "bay-area-trail-collective",
@@ -427,6 +460,14 @@
       "role": "MEMBER",
       "status": "ACTIVE",
       "joinedAt": "2026-07-12T04:04:16.594Z"
+    },
+    {
+      "id": "gm_tennis_diego",
+      "groupId": "group_mke_tennis",
+      "userId": "user_diego",
+      "role": "OWNER",
+      "status": "ACTIVE",
+      "joinedAt": "2026-07-28T19:16:23.037Z"
     }
   ],
   "follows": [

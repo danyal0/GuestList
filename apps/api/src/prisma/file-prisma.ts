@@ -31,7 +31,7 @@ function compareValues(a: unknown, b: unknown): number {
 }
 
 function matchCondition(value: unknown, condition: unknown): boolean {
-  if (condition === null) return value === null;
+  if (condition === null) return value === null || value === undefined;
   if (condition === undefined) return true;
   if (typeof condition !== 'object' || condition instanceof Date || Array.isArray(condition)) {
     if (value instanceof Date && typeof condition === 'string') return value.getTime() === new Date(condition).getTime();

@@ -14,8 +14,8 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     // Flat rewrite arrays are treated as `afterFiles`: Next.js filesystem
-    // routes (including App Router handlers under /api/whatsapp/*) are matched
-    // first, then remaining /api/* traffic is proxied to Nest.
+  // routes match first; remaining /api/* (including /api/whatsapp/*) is
+  // proxied to Nest, which owns the WhatsApp bridge + file-backed DB.
     return [
       { source: '/api/:path*', destination: `${API_URL}/api/:path*` },
       { source: '/uploads/:path*', destination: `${API_URL}/uploads/:path*` },
