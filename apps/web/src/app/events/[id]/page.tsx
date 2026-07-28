@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CalendarDays,
   CalendarPlus,
@@ -12,10 +12,12 @@ import {
   Globe,
   MapPin,
   Repeat,
+  Trash2,
   Users,
   Video,
 } from 'lucide-react';
-import { api } from '@/lib/api';
+import { toast } from 'sonner';
+import { api, ApiError } from '@/lib/api';
 import type { EventDetail } from '@/lib/types';
 import { formatDate, formatTime } from '@/lib/utils';
 import { formatSpotsLabel, hasSpotsLeft } from '@/lib/capacity';
@@ -24,6 +26,7 @@ import { getSocket } from '@/lib/socket';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { LinkifiedText, googleMapsUrl } from '@/components/ui/linkified-text';
 import { RsvpButtons } from '@/components/events/rsvp-buttons';
 import { ErrorState } from '@/components/ui/empty-state';
@@ -33,10 +36,25 @@ export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
 
   const event = useQuery({
     queryKey: ['event', id],
     queryFn: () => api<EventDetail>(`/events/${id}`),
+  });
+
+  const cancelEvent = useMutation({
+    mutationFn: () => api(`/events/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      toast.success('Event cancelled — attendees have been notified.');
+      setDeleteOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ['event', id] });
+      void queryClient.invalidateQueries({ queryKey: ['home-events'] });
+      void queryClient.invalidateQueries({ queryKey: ['events'] });
+      void queryClient.invalidateQueries({ queryKey: ['my-events'] });
+    },
+    onError: (error) =>
+      toast.error(error instanceof ApiError ? error.message : 'Could not cancel the event'),
   });
 
   // Live RSVP counts + event changes while viewing.
@@ -72,6 +90,7 @@ export default function EventDetailPage() {
   const isFull = hasSpotsLeft(e.spotsLeft) && e.spotsLeft === 0;
   const cancelled = e.status === 'CANCELLED';
   const rescheduled = Boolean(e.previousStartTime || e.rescheduledAt) && !cancelled;
+  const isHost = Boolean(user && user.id === e.host.id);
   const mapsHref = googleMapsUrl({
     locationName: e.locationName,
     address: e.address,
@@ -248,6 +267,45 @@ export default function EventDetailPage() {
           </a>
         </Button>
       </div>
+
+      {isHost && !cancelled ? (
+        <section className="rounded-[var(--radius-lg)] border border-[var(--color-danger)]/30 p-5">
+          <h2 className="text-[17px] font-bold text-[var(--color-danger)]">Host controls</h2>
+          <p className="mt-1 text-[14px] text-[var(--color-ink-secondary)]">
+            Cancelling removes this event from upcoming lists and notifies everyone who RSVP’d.
+          </p>
+          <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+            <DialogTrigger asChild>
+              <Button variant="destructive" className="mt-4">
+                <Trash2 className="h-4 w-4" aria-hidden /> Cancel event
+              </Button>
+            </DialogTrigger>
+            <DialogContent
+              title="Cancel this event?"
+              description="Attendees will be notified. The event stays under Cancelled so people can still see what happened."
+            >
+              <div className="flex gap-3">
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  loading={cancelEvent.isPending}
+                  onClick={() => cancelEvent.mutate()}
+                >
+                  Yes, cancel it
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="flex-1"
+                  onClick={() => setDeleteOpen(false)}
+                  disabled={cancelEvent.isPending}
+                >
+                  Keep event
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </section>
+      ) : null}
 
       {/* Attendees */}
       {e.attendeePreview.length > 0 && (

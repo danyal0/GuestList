@@ -14,6 +14,7 @@ import {
   MessageCircle,
   Plus,
   ScrollText,
+  Trash2,
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -24,6 +25,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EventCard, EventCardSkeleton } from '@/components/events/event-card';
 import { EmptyState, ErrorState } from '@/components/ui/empty-state';
@@ -48,6 +50,7 @@ export default function GroupDetailPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
 
   const group = useQuery({
     queryKey: ['group', slug],
@@ -108,6 +111,20 @@ export default function GroupDetailPage() {
     onSuccess: invalidate,
   });
 
+  const deleteCommunity = useMutation({
+    mutationFn: () => api(`/groups/${group.data!.id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      toast.success(`${group.data!.name} was deleted.`);
+      setDeleteOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ['home-groups'] });
+      void queryClient.invalidateQueries({ queryKey: ['groups'] });
+      router.push('/groups');
+      router.refresh();
+    },
+    onError: (error) =>
+      toast.error(error instanceof ApiError ? error.message : 'Could not delete the community'),
+  });
+
   const openChat = async () => {
     try {
       const conversation = await api<{ id: string }>(
@@ -137,6 +154,7 @@ export default function GroupDetailPage() {
   const membership = g.viewerMembership;
   const canManage = membership && ['OWNER', 'ADMIN'].includes(membership.role);
   const canHost = membership && ['OWNER', 'ADMIN', 'MODERATOR'].includes(membership.role);
+  const isOwner = membership?.role === 'OWNER';
 
   return (
     <div className="space-y-6">
@@ -311,14 +329,58 @@ export default function GroupDetailPage() {
                 ))}
               </ul>
             )}
-            {canManage && (
+            {canManage && !isOwner && (
               <p className="mt-3 text-[13px] text-[var(--color-ink-tertiary)]">
                 Manage roles, approvals and bans from the API or the admin dashboard.
+              </p>
+            )}
+            {isOwner && (
+              <p className="mt-3 text-[13px] text-[var(--color-ink-tertiary)]">
+                As owner you can delete this community from the section below.
               </p>
             )}
           </TabsContent>
         )}
       </Tabs>
+
+      {isOwner ? (
+        <section className="rounded-[var(--radius-lg)] border border-[var(--color-danger)]/30 p-5">
+          <h2 className="text-[17px] font-bold text-[var(--color-danger)]">Owner controls</h2>
+          <p className="mt-1 text-[14px] text-[var(--color-ink-secondary)]">
+            Deleting this community removes it from discovery. This cannot be undone from the app.
+          </p>
+          <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+            <DialogTrigger asChild>
+              <Button variant="destructive" className="mt-4">
+                <Trash2 className="h-4 w-4" aria-hidden /> Delete community
+              </Button>
+            </DialogTrigger>
+            <DialogContent
+              title={`Delete ${g.name}?`}
+              description="Members lose access and the community disappears from search. Prefer leaving it up if you might come back."
+            >
+              <div className="flex gap-3">
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  loading={deleteCommunity.isPending}
+                  onClick={() => deleteCommunity.mutate()}
+                >
+                  Yes, delete it
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="flex-1"
+                  onClick={() => setDeleteOpen(false)}
+                  disabled={deleteCommunity.isPending}
+                >
+                  Keep community
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </section>
+      ) : null}
     </div>
   );
 }
