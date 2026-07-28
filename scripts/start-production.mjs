@@ -38,6 +38,8 @@ function log(message) {
 
 function isApiPath(urlPath) {
   const path = urlPath.split('?')[0] ?? '';
+  // WhatsApp bridge lives on Next.js App Router handlers, not Nest.
+  if (path.startsWith('/api/whatsapp')) return false;
   return path.startsWith('/api') || path.startsWith('/uploads') || path.startsWith('/socket.io');
 }
 
