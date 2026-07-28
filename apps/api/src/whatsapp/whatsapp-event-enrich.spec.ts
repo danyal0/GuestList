@@ -10,7 +10,9 @@ import {
   preferPmForTennisHour,
   resolveCatalogVenue,
   resolveMilwaukeeVenue,
+  scoreEventAgainstQuote,
   scoreRescheduleCandidate,
+  whatsappIdFromMeVariants,
 } from './whatsapp-event-enrich';
 import { computeSpotsLeft, normalizeCapacity } from '../common/utils/capacity';
 
@@ -208,5 +210,49 @@ describe('detectCancelCues', () => {
   it('detects place cues only when the message mentions a place', () => {
     expect(hasPlaceCue('its cancelled')).toBe(false);
     expect(hasPlaceCue('Atwater 6pm cancelled')).toBe(true);
+  });
+
+  it('scores Atwater quote against Atwater event, not Lake Park', () => {
+    const quote =
+      'John, Doe and I are going to play tennis at Atwater Elementary School in Shorewood about 6 pm';
+    const atwater = scoreEventAgainstQuote(
+      {
+        id: 'evt_atwater',
+        title: 'Atwater tennis',
+        startTime: new Date('2026-07-29T23:00:00.000Z'),
+        endTime: new Date('2026-07-30T00:30:00.000Z'),
+        locationName: 'Atwater Elementary School Tennis Courts',
+        address: 'Shorewood',
+        venueId: 'venue_atwater',
+        whatsappMessageId: null,
+        description: quote,
+        capacity: 12,
+      },
+      quote,
+    );
+    const lake = scoreEventAgainstQuote(
+      {
+        id: 'evt_lake',
+        title: 'Lake front tennis',
+        startTime: new Date('2026-07-29T23:00:00.000Z'),
+        endTime: new Date('2026-07-30T00:30:00.000Z'),
+        locationName: 'Lake Park Tennis Courts',
+        address: '3233 N Lake Dr, Milwaukee, WI 53211',
+        venueId: 'venue_lake',
+        whatsappMessageId: 'false_x',
+        description: 'lets play at lake front at 6 tomorrow',
+        capacity: 24,
+      },
+      quote,
+    );
+    expect(atwater).toBeGreaterThanOrEqual(0.7);
+    expect(atwater).toBeGreaterThan(lake + 0.2);
+  });
+
+  it('flips fromMe prefix on whatsapp ids', () => {
+    expect(whatsappIdFromMeVariants('true_g.us_abc')).toEqual([
+      'true_g.us_abc',
+      'false_g.us_abc',
+    ]);
   });
 });

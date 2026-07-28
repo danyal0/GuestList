@@ -22,7 +22,9 @@ import {
   mergeNamedAttendees,
   preferPmForTennisHour,
   resolveCatalogVenue,
+  scoreEventAgainstQuote,
   scoreRescheduleCandidate,
+  whatsappIdFromMeVariants,
   type RescheduleCandidate,
 } from './whatsapp-event-enrich';
 import {
@@ -360,7 +362,7 @@ export class WhatsappService {
       const match = await this.findUpdateTarget(matchOpts);
       if (match) {
         this.logger.log(
-          `Cancel match event=${match.id} score=${match.score.toFixed(2)} cue="${cancelCue.matchedPhrase ?? 'ai'}" via=${targetWhatsappMessageId ? 'reply' : 'soft'}`,
+          `Cancel match event=${match.id} score=${match.score.toFixed(2)} cue="${cancelCue.matchedPhrase ?? 'ai'}" quote=${quotedText ? 'yes' : 'no'} replyId=${targetWhatsappMessageId || 'n/a'}`,
         );
         const updatedDescription = appendWhatsappUpdate(
           match.description,
@@ -376,10 +378,13 @@ export class WhatsappService {
           },
           select: eventSelect,
         });
-        await this.notifyEventCancelled(cancelled, {
+        const notified = await this.notifyEventCancelled(cancelled, {
           message: `"${cancelled.title}" has been cancelled via WhatsApp.`,
           excludeUserId: host.id,
         });
+        this.logger.log(
+          `Cancelled event=${cancelled.id} notifiedRsvps=${notified}`,
+        );
         this.eventEmitter.emit('realtime.event.updated', {
           eventId: cancelled.id,
           event: cancelled,
@@ -388,6 +393,7 @@ export class WhatsappService {
           ok: true,
           cancelled: true,
           event: cancelled,
+          notifiedRsvps: notified,
           namedAttendees: [],
           capacity: cancelled.capacity,
         };
@@ -604,10 +610,11 @@ export class WhatsappService {
       }
     }
 
-    if (opts.targetWhatsappMessageId) {
+    const replyIds = whatsappIdFromMeVariants(opts.targetWhatsappMessageId);
+    if (replyIds.length) {
       const byReply = await this.prisma.event.findFirst({
         where: {
-          whatsappMessageId: opts.targetWhatsappMessageId,
+          whatsappMessageId: { in: replyIds },
           status: 'PUBLISHED',
           hostId: opts.hostId,
         },
@@ -616,17 +623,137 @@ export class WhatsappService {
       if (byReply) {
         return { ...byReply, score: 1 };
       }
-      const byDesc = await this.prisma.event.findMany({
+      for (const replyId of replyIds) {
+        const byDesc = await this.prisma.event.findMany({
+          where: {
+            hostId: opts.hostId,
+            status: 'PUBLISHED',
+            description: { contains: replyId },
+          },
+          select: candidateSelect,
+          take: 5,
+        });
+        if (byDesc.length === 1) {
+          return { ...byDesc[0]!, score: 0.98 };
+        }
+      }
+    }
+
+    // Quote body often equals / is embedded in the original invite description.
+    const quote = opts.quotedText?.trim() || '';
+    const quoteCatalog = quote ? resolveCatalogVenue(quote) : null;
+    if (quoteCatalog) {
+      const venueRow = await this.prisma.venue.findUnique({
+        where: { slug: quoteCatalog.venue.slug },
+        select: { id: true },
+      });
+      const windowForQuote = {
+        gte: new Date(Date.now() - 12 * 60 * 60 * 1000),
+        lte: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+      };
+      if (venueRow) {
+        const byVenue = await this.prisma.event.findMany({
+          where: {
+            hostId: opts.hostId,
+            status: 'PUBLISHED',
+            venueId: venueRow.id,
+            startTime: windowForQuote,
+          },
+          select: candidateSelect,
+          orderBy: { startTime: 'asc' },
+          take: 8,
+        });
+        if (byVenue.length === 1) {
+          this.logger.log(
+            `Matched event by quoted venue slug=${quoteCatalog.venue.slug} → ${byVenue[0]!.id}`,
+          );
+          return { ...byVenue[0]!, score: 0.96 };
+        }
+        if (byVenue.length > 1) {
+          const scoredVenue = byVenue
+            .map((c) => ({ ...c, score: scoreEventAgainstQuote(c, quote) }))
+            .sort((a, b) => b.score - a.score);
+          if (
+            scoredVenue[0] &&
+            (!scoredVenue[1] || scoredVenue[0].score - scoredVenue[1].score >= 0.08)
+          ) {
+            return { ...scoredVenue[0], score: Math.max(scoredVenue[0].score, 0.9) };
+          }
+        }
+      }
+      const placeKey =
+        quoteCatalog.matchedAlias ||
+        quoteCatalog.venue.aliases.find((a) => a.length >= 4) ||
+        quoteCatalog.venue.name.split(' ')[0] ||
+        '';
+      if (placeKey.length >= 4) {
+        const byPlace = await this.prisma.event.findMany({
+          where: {
+            hostId: opts.hostId,
+            status: 'PUBLISHED',
+            startTime: windowForQuote,
+            OR: [
+              { locationName: { contains: placeKey, mode: 'insensitive' } },
+              { title: { contains: placeKey, mode: 'insensitive' } },
+              { description: { contains: placeKey, mode: 'insensitive' } },
+              { address: { contains: placeKey, mode: 'insensitive' } },
+            ],
+          },
+          select: candidateSelect,
+          take: 8,
+        });
+        if (byPlace.length === 1) {
+          this.logger.log(
+            `Matched event by quoted place "${placeKey}" → ${byPlace[0]!.id}`,
+          );
+          return { ...byPlace[0]!, score: 0.95 };
+        }
+        if (byPlace.length > 1) {
+          const scoredPlace = byPlace
+            .map((c) => ({ ...c, score: scoreEventAgainstQuote(c, quote) }))
+            .sort((a, b) => b.score - a.score);
+          if (
+            scoredPlace[0] &&
+            scoredPlace[0].score >= 0.5 &&
+            (!scoredPlace[1] || scoredPlace[0].score - scoredPlace[1].score >= 0.08)
+          ) {
+            return { ...scoredPlace[0], score: Math.max(scoredPlace[0].score, 0.9) };
+          }
+        }
+      }
+    }
+
+    if (quote.length >= 16) {
+      const snippet = quote.slice(0, 40);
+      const bySnippet = await this.prisma.event.findMany({
         where: {
           hostId: opts.hostId,
           status: 'PUBLISHED',
-          description: { contains: opts.targetWhatsappMessageId },
+          description: { contains: snippet.slice(0, 24) },
         },
         select: candidateSelect,
-        take: 5,
+        take: 8,
       });
-      if (byDesc.length === 1) {
-        return { ...byDesc[0]!, score: 0.98 };
+      if (bySnippet.length === 1) {
+        this.logger.log(
+          `Matched event by quoted invite snippet → ${bySnippet[0]!.id}`,
+        );
+        return { ...bySnippet[0]!, score: 0.97 };
+      }
+      if (bySnippet.length > 1) {
+        const scoredSnips = bySnippet
+          .map((c) => ({
+            ...c,
+            score: scoreEventAgainstQuote(c, quote),
+          }))
+          .sort((a, b) => b.score - a.score);
+        if (
+          scoredSnips[0] &&
+          scoredSnips[0].score >= 0.7 &&
+          (!scoredSnips[1] || scoredSnips[0].score - scoredSnips[1].score >= 0.1)
+        ) {
+          return scoredSnips[0];
+        }
       }
     }
 
@@ -638,8 +765,6 @@ export class WhatsappService {
       now + (opts.preferSingleCandidate ? 14 : 2) * 24 * 60 * 60 * 1000,
     );
 
-    // Cancel: search all of the host's published events (app-created ones may
-    // not be in the WhatsApp default group, and have no whatsappMessageId).
     const candidates = await this.prisma.event.findMany({
       where: {
         hostId: opts.hostId,
@@ -654,37 +779,42 @@ export class WhatsappService {
 
     if (candidates.length === 0) return null;
 
-    if (opts.preferSingleCandidate && candidates.length === 1) {
+    if (opts.preferSingleCandidate && candidates.length === 1 && !quote) {
       return { ...candidates[0]!, score: 0.9 };
     }
 
-    // Quote/body title hint for app-created events (no WhatsApp message id).
-    const titleHint = `${opts.quotedText || ''} ${opts.messageBody || ''}`.toLowerCase();
-    if (opts.preferSingleCandidate && titleHint.trim()) {
-      const titled = candidates
-        .map((c) => {
-          const title = (c.title || '').toLowerCase();
-          const loc = (c.locationName || '').toLowerCase();
-          let score = 0;
-          if (title && titleHint.includes(title.slice(0, Math.min(title.length, 24)))) {
-            score += 0.7;
-          }
-          if (loc && loc.length >= 4 && titleHint.includes(loc.slice(0, Math.min(loc.length, 16)))) {
-            score += 0.25;
-          }
-          return { ...c, score };
-        })
-        .filter((c) => c.score >= 0.7)
+    // Prefer quote place/title over "soonest upcoming" — otherwise we cancel
+    // the wrong game when the host has multiple plans.
+    if (quote) {
+      const quotedScores = candidates
+        .map((c) => ({
+          ...c,
+          score: scoreEventAgainstQuote(c, quote),
+        }))
         .sort((a, b) => b.score - a.score);
-      if (titled[0] && (!titled[1] || titled[0].score - titled[1].score >= 0.15)) {
-        return titled[0];
+      const bestQ = quotedScores[0];
+      const secondQ = quotedScores[1];
+      if (bestQ && bestQ.score >= 0.7) {
+        if (!secondQ || bestQ.score - secondQ.score >= 0.1 || secondQ.score < 0.7) {
+          this.logger.log(
+            `Matched event by quoted place/text score=${bestQ.score.toFixed(2)} → ${bestQ.id}`,
+          );
+          return bestQ;
+        }
+      }
+      // Quote present but ambiguous/weak — do NOT guess the soonest event.
+      this.logger.warn(
+        `Quoted cancel/reschedule text present but no strong event match (best=${bestQ?.id ?? 'none'}@${bestQ?.score?.toFixed(2) ?? 0})`,
+      );
+      if (opts.preferSingleCandidate) {
+        return null;
       }
     }
 
     const messageHasPlaceCue = hasPlaceCue(opts.messageBody) || Boolean(opts.venueId);
 
-    // Cancel with no place/time in the message → soonest upcoming host event.
-    if (opts.preferSingleCandidate && !messageHasPlaceCue) {
+    // Cancel with no place in the cancel text AND no quote → soonest upcoming.
+    if (opts.preferSingleCandidate && !messageHasPlaceCue && !quote) {
       const upcoming = candidates
         .filter((c) => c.startTime.getTime() >= now - 2 * 60 * 60 * 1000)
         .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
@@ -695,12 +825,10 @@ export class WhatsappService {
         const gapHours =
           (upcoming[1]!.startTime.getTime() - upcoming[0]!.startTime.getTime()) /
           (60 * 60 * 1000);
-        // Prefer the next game when it's clearly sooner than the one after.
         if (gapHours >= 4) {
           return { ...upcoming[0]!, score: 0.82 };
         }
       }
-      // Fall back to sole / soonest event in the WhatsApp default group.
       const groupOnly = await this.prisma.event.findMany({
         where: {
           hostId: opts.hostId,
@@ -732,8 +860,6 @@ export class WhatsappService {
       }
     }
 
-    // Don't let an invented venue poison cancel scoring when the message
-    // itself has no place words.
     const scoreVenueId = messageHasPlaceCue ? opts.venueId : null;
     const scoreLocation = messageHasPlaceCue ? opts.locationName : null;
     const scoreAddress = messageHasPlaceCue ? opts.address : null;
@@ -754,7 +880,7 @@ export class WhatsappService {
       .sort((a, b) => b.score - a.score);
 
     const best = scored[0];
-    const minScore = opts.preferSingleCandidate ? 0.45 : 0.7;
+    const minScore = 0.7;
     if (!best || best.score < minScore) return null;
     const second = scored[1];
     if (
@@ -778,7 +904,7 @@ export class WhatsappService {
       locationName: string | null;
     },
     opts: { message: string; excludeUserId?: string },
-  ): Promise<void> {
+  ): Promise<number> {
     const rsvps = await this.prisma.rsvp.findMany({
       where: {
         eventId: event.id,
@@ -789,6 +915,10 @@ export class WhatsappService {
       },
       select: { userId: true },
     });
+
+    this.logger.log(
+      `Cancel notify event=${event.id} rsvpRecipients=${rsvps.length}`,
+    );
 
     for (const rsvp of rsvps) {
       this.eventEmitter.emit(NOTIFY_EVENT, {
@@ -810,6 +940,7 @@ export class WhatsappService {
         },
       } satisfies NotifyPayload);
     }
+    return rsvps.length;
   }
 
   private async notifyEventUpdated(
