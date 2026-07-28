@@ -304,12 +304,42 @@ model Follow {
   @@map("follows")
 }
 
+// ─────────────────────────── Venues (standardized places) ───────────────────────────
+
+model Venue {
+  id         String    @id @default(cuid())
+  slug       String    @unique
+  name       String
+  /// Sport key, e.g. TENNIS — expand to enum later as we add sports.
+  sport      String    @default("TENNIS")
+  city       String?
+  region     String?
+  country    String    @default("US")
+  address    String
+  latitude   Float?
+  longitude  Float?
+  aliases    String[]  @default([])
+  notes      String?   @db.Text
+  /// catalog | ai | user
+  source     String    @default("catalog")
+  verifiedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  events Event[]
+
+  @@index([sport, city])
+  @@index([name])
+  @@map("venues")
+}
+
 // ─────────────────────────── Events ───────────────────────────
 
 model Event {
   id             String          @id @default(cuid())
   groupId        String
   hostId         String
+  venueId        String?
   title          String
   description    String          @db.Text
   coverImage     String?
@@ -337,12 +367,14 @@ model Event {
 
   group       Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
   host        User    @relation("EventHost", fields: [hostId], references: [id])
+  venue       Venue?  @relation(fields: [venueId], references: [id], onDelete: SetNull)
   parentEvent Event?  @relation("EventRecurrence", fields: [parentEventId], references: [id], onDelete: SetNull)
   occurrences Event[] @relation("EventRecurrence")
   rsvps       Rsvp[]
 
   @@index([groupId])
   @@index([hostId])
+  @@index([venueId])
   @@index([startTime])
   @@index([status, visibility, startTime])
   @@index([latitude, longitude])

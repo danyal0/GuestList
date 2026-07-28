@@ -46,6 +46,22 @@ export class WhatsappCreateEventDto {
   address?: string | null;
 
   @IsOptional()
+  @IsString()
+  venueSlug?: string | null;
+
+  @IsOptional()
+  @IsNumber()
+  venueConfidence?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  addressConfidence?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  timeConfidence?: number | null;
+
+  @IsOptional()
   @IsNumber()
   latitude?: number | null;
 

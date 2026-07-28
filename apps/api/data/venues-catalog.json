@@ -1,0 +1,93 @@
+[
+  {
+    "slug": "mckinley-tennis-courts",
+    "name": "McKinley Tennis Courts",
+    "sport": "TENNIS",
+    "city": "Milwaukee",
+    "region": "WI",
+    "country": "US",
+    "address": "1750 N Lincoln Memorial Dr, Milwaukee, WI 53202",
+    "latitude": 43.0439,
+    "longitude": -87.8902,
+    "aliases": [
+      "lake front",
+      "lakefront",
+      "the lake front",
+      "the lakefront",
+      "mckinley",
+      "mckinley park",
+      "mckinley tennis",
+      "mckinley courts",
+      "veterans park",
+      "veteran's park",
+      "mckinley marina",
+      "lincoln memorial"
+    ],
+    "notes": "6 lighted outdoor hard courts with backboards on the Milwaukee lakefront (Veterans Park / McKinley)."
+  },
+  {
+    "slug": "lake-park-tennis-courts",
+    "name": "Lake Park Tennis Courts",
+    "sport": "TENNIS",
+    "city": "Milwaukee",
+    "region": "WI",
+    "country": "US",
+    "address": "3233 E Kenwood Blvd, Milwaukee, WI 53211",
+    "latitude": 43.0692,
+    "longitude": -87.8705,
+    "aliases": ["lake park", "bradford", "bradford beach", "kenwood"],
+    "notes": "5 lighted courts with backboards at Lake Park (not the same as McKinley lakefront)."
+  },
+  {
+    "slug": "humboldt-park-tennis-courts",
+    "name": "Humboldt Park Tennis Courts",
+    "sport": "TENNIS",
+    "city": "Milwaukee",
+    "region": "WI",
+    "country": "US",
+    "address": "3000 S Howell Ave, Milwaukee, WI 53207",
+    "latitude": 42.9995,
+    "longitude": -87.8942,
+    "aliases": ["humboldt", "humboldt park"],
+    "notes": null
+  },
+  {
+    "slug": "washington-park-tennis-courts",
+    "name": "Washington Park Tennis Courts",
+    "sport": "TENNIS",
+    "city": "Milwaukee",
+    "region": "WI",
+    "country": "US",
+    "address": "1858 N 40th St, Milwaukee, WI 53208",
+    "latitude": 43.0545,
+    "longitude": -87.9615,
+    "aliases": ["washington park"],
+    "notes": null
+  },
+  {
+    "slug": "wilson-park-tennis-courts",
+    "name": "Wilson Park Tennis Courts",
+    "sport": "TENNIS",
+    "city": "Milwaukee",
+    "region": "WI",
+    "country": "US",
+    "address": "4001 S 20th St, Milwaukee, WI 53221",
+    "latitude": 42.9588,
+    "longitude": -87.9395,
+    "aliases": ["wilson park", "wilson recreation"],
+    "notes": null
+  },
+  {
+    "slug": "hart-park-tennis-courts",
+    "name": "Hart Park Tennis Courts",
+    "sport": "TENNIS",
+    "city": "Wauwatosa",
+    "region": "WI",
+    "country": "US",
+    "address": "7300 Chestnut St, Wauwatosa, WI 53213",
+    "latitude": 43.0496,
+    "longitude": -88.0076,
+    "aliases": ["wauwatosa", "hart park"],
+    "notes": null
+  }
+]

@@ -1,106 +1,74 @@
 /**
- * Milwaukee-area tennis venue hints for WhatsApp create-event enrichment.
- * Used when the model (or message) only gives a casual place clue.
+ * Milwaukee-area tennis venue catalog + helpers.
+ * Source of truth: apps/api/data/venues-catalog.json (also seeded into Venue table).
  */
 
-export type MilwaukeeVenue = {
-  aliases: string[];
-  locationName: string;
+import catalogJson from '../../data/venues-catalog.json';
+
+export type SportCode = 'TENNIS';
+
+export type CatalogVenue = {
+  slug: string;
+  name: string;
+  sport: SportCode;
+  city: string;
+  region: string;
+  country: string;
   address: string;
   latitude: number;
   longitude: number;
-  notes?: string;
+  aliases: string[];
+  notes?: string | null;
 };
 
-export const MILWAUKEE_TENNIS_VENUES: MilwaukeeVenue[] = [
-  {
-    aliases: [
-      'lake front',
-      'lakefront',
-      'lake park',
-      'bradford',
-      'bradford beach',
-      'lake drive',
-    ],
-    locationName: 'Lake Park Tennis Courts',
-    address: '3233 N Lake Dr, Milwaukee, WI 53211',
-    latitude: 43.0665,
-    longitude: -87.8708,
-    notes: 'Public courts near Bradford Beach / Lake Park on Milwaukee’s lakefront.',
-  },
-  {
-    aliases: ['veterans park', "veteran's park", 'mckinley', 'mckinley marina'],
-    locationName: 'Veterans Park / McKinley Marina area',
-    address: '1010 N Lincoln Memorial Dr, Milwaukee, WI 53202',
-    latitude: 43.0442,
-    longitude: -87.8945,
-    notes: 'Lakefront park courts / meetup area near McKinley Marina.',
-  },
-  {
-    aliases: ['humboldt', 'humboldt park'],
-    locationName: 'Humboldt Park Tennis Courts',
-    address: '3000 S Howell Ave, Milwaukee, WI 53207',
-    latitude: 42.9995,
-    longitude: -87.8942,
-  },
-  {
-    aliases: ['washington park'],
-    locationName: 'Washington Park Tennis Courts',
-    address: '1858 N 40th St, Milwaukee, WI 53208',
-    latitude: 43.0545,
-    longitude: -87.9615,
-  },
-  {
-    aliases: ['wilson park'],
-    locationName: 'Wilson Park Tennis Courts',
-    address: '4001 S 20th St, Milwaukee, WI 53221',
-    latitude: 42.9588,
-    longitude: -87.9395,
-  },
-  {
-    aliases: ['oak creek', 'carrington'],
-    locationName: 'Oak Creek Tennis Courts',
-    address: '215 W Drexel Ave, Oak Creek, WI 53154',
-    latitude: 42.8805,
-    longitude: -87.9285,
-  },
-  {
-    aliases: ['wauwatosa', 'hart park'],
-    locationName: 'Hart Park Tennis Courts',
-    address: '7300 Chestnut St, Wauwatosa, WI 53213',
-    latitude: 43.0496,
-    longitude: -88.0076,
-  },
-];
+export const MILWAUKEE_TENNIS_VENUES = catalogJson as CatalogVenue[];
 
-export function resolveMilwaukeeVenue(clue: string | null | undefined): MilwaukeeVenue | null {
+export type VenueMatch = {
+  venue: CatalogVenue;
+  score: number;
+  matchedAlias: string;
+};
+
+export function resolveCatalogVenue(
+  clue: string | null | undefined,
+  opts: { sport?: SportCode; minAliasLength?: number } = {},
+): VenueMatch | null {
   if (!clue) return null;
   const hay = clue.toLowerCase().replace(/\s+/g, ' ').trim();
   if (!hay) return null;
+  const sport = opts.sport ?? 'TENNIS';
+  const minAliasLength = opts.minAliasLength ?? 4;
 
-  let best: { venue: MilwaukeeVenue; score: number } | null = null;
+  let best: VenueMatch | null = null;
   for (const venue of MILWAUKEE_TENNIS_VENUES) {
+    if (venue.sport !== sport) continue;
     for (const alias of venue.aliases) {
+      if (alias.length < minAliasLength) continue;
       if (hay.includes(alias)) {
-        const score = alias.length;
-        if (!best || score > best.score) best = { venue, score };
+        const score = alias.length + (alias === hay ? 10 : 0);
+        if (!best || score > best.score) {
+          best = { venue, score, matchedAlias: alias };
+        }
       }
     }
-    if (hay.includes(venue.locationName.toLowerCase())) {
-      const score = venue.locationName.length;
-      if (!best || score > best.score) best = { venue, score };
+    const name = venue.name.toLowerCase();
+    if (hay.includes(name)) {
+      const score = name.length + 5;
+      if (!best || score > best.score) {
+        best = { venue, score, matchedAlias: name };
+      }
     }
   }
-  return best?.venue ?? null;
+  return best;
 }
 
-/**
- * Prefer PM for casual tennis hours when AM/PM is omitted.
- * Bare "6" / "at 6" / "6 tomorrow" → 6pm local, not 6am.
- */
+/** @deprecated use resolveCatalogVenue */
+export function resolveMilwaukeeVenue(clue: string | null | undefined) {
+  return resolveCatalogVenue(clue)?.venue ?? null;
+}
+
 export function preferPmForTennisHour(hour24: number, explicitlyAmPm: boolean): number {
   if (explicitlyAmPm) return hour24;
-  // 1–8 without am/pm → treat as PM (13–20). 9–11 stay morning-ish; 12 noon.
   if (hour24 >= 1 && hour24 <= 8) return hour24 + 12;
   return hour24;
 }
@@ -139,4 +107,13 @@ export function buildEventDescription(parts: {
     blocks.push(`Source: WhatsApp message ${parts.whatsappMessageId.trim()}`);
   }
   return blocks.join('\n\n');
+}
+
+export function catalogVenuesForPrompt(sport: SportCode = 'TENNIS'): string {
+  return MILWAUKEE_TENNIS_VENUES.filter((v) => v.sport === sport)
+    .map(
+      (v) =>
+        `- slug=${v.slug} name="${v.name}" address="${v.address}" aliases=[${v.aliases.join(', ')}] lat=${v.latitude} lng=${v.longitude}`,
+    )
+    .join('\n');
 }
