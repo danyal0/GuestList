@@ -154,7 +154,7 @@ enum ActivityType {
 
 model User {
   id              String    @id @default(cuid())
-  email           String    @unique
+  email           String?   @unique
   passwordHash    String?
   name            String
   avatarUrl       String?
@@ -162,8 +162,10 @@ model User {
   location        String?
   latitude        Float?
   longitude       Float?
-  /// E.164 or digits-only phone used to link WhatsApp participants to accounts
+  /// E.164 or digits-only phone for login + WhatsApp linking
   phone           String?   @unique
+  /// WhatsApp Linked ID local-part (digits from …@lid). Stable identity when phone is hidden.
+  whatsappLid     String?   @unique
   role            UserRole  @default(USER)
   interests       String[]  @default([])
   skills          String[]  @default([])

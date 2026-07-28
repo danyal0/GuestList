@@ -24,7 +24,7 @@ export default function SignupPage() {
     const form = new FormData(e.currentTarget);
     const values = {
       name: String(form.get('name')),
-      email: String(form.get('email')),
+      phone: String(form.get('phone')),
       password: String(form.get('password')),
     };
 
@@ -44,7 +44,7 @@ export default function SignupPage() {
         skipRefresh: true,
       });
       setSession(data.user, data.accessToken);
-      toast.success('Welcome to MKE Plays! Check your inbox to verify your email.');
+      toast.success('Welcome to MKE Plays! Message your WhatsApp tennis group to link your account.');
       router.push('/');
       router.refresh();
     } catch (error) {
@@ -55,23 +55,27 @@ export default function SignupPage() {
   };
 
   return (
-    <AuthCard title="Join MKE Plays" subtitle="Free forever. Find your people in minutes.">
+    <AuthCard title="Join MKE Plays" subtitle="Name, phone, password — then link WhatsApp from your tennis group.">
       <form onSubmit={onSubmit} noValidate className="space-y-4">
         <div>
           <Label htmlFor="name">Full name</Label>
           <Input id="name" name="name" autoComplete="name" placeholder="Alex Rivera" error={errors.name} required />
         </div>
         <div>
-          <Label htmlFor="email">Email</Label>
+          <Label htmlFor="phone">Phone</Label>
           <Input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            placeholder="you@example.com"
-            error={errors.email}
+            id="phone"
+            name="phone"
+            type="tel"
+            autoComplete="tel"
+            inputMode="tel"
+            placeholder="+1 414 555 0100"
+            error={errors.phone}
             required
           />
+          <p className="mt-1.5 text-[12px] text-[var(--color-ink-tertiary)]">
+            Use the same number as WhatsApp so we can link your LID automatically.
+          </p>
         </div>
         <div>
           <Label htmlFor="password">Password</Label>

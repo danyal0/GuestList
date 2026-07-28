@@ -20,6 +20,8 @@ function makeUser(overrides: Record<string, unknown> = {}) {
   return {
     id: 'usr_1',
     email: 'ada@example.com',
+    phone: '14145550100',
+    whatsappLid: null as string | null,
     passwordHash: null as string | null,
     name: 'Ada Lovelace',
     avatarUrl: null,
@@ -90,11 +92,11 @@ describe('AuthService', () => {
   });
 
   describe('signup', () => {
-    it('rejects duplicate emails with 409', async () => {
+    it('rejects duplicate phones with 409', async () => {
       prisma.user.findUnique.mockResolvedValue(makeUser());
-      await expect(service.signup('ada@example.com', 'Str0ngPassw0rd!', 'Ada', {})).rejects.toThrow(
-        ConflictException,
-      );
+      await expect(
+        service.signup({ name: 'Ada', phone: '14145550100', password: 'Str0ngPassw0rd!' }, {}),
+      ).rejects.toThrow(ConflictException);
     });
 
     it('hashes the password with argon2 and issues tokens', async () => {
@@ -103,16 +105,18 @@ describe('AuthService', () => {
         Promise.resolve(makeUser(data)),
       );
 
-      const result = await service.signup('ada@example.com', 'Str0ngPassw0rd!', 'Ada', {});
+      const result = await service.signup(
+        { name: 'Ada', phone: '+1 (414) 555-0100', password: 'Str0ngPassw0rd!' },
+        {},
+      );
 
       const created = prisma.user.create.mock.calls[0][0].data;
+      expect(created.phone).toBe('14145550100');
       expect(created.passwordHash).not.toBe('Str0ngPassw0rd!');
       expect(created.passwordHash).toMatch(/^\$argon2/);
       await expect(argon2.verify(created.passwordHash, 'Str0ngPassw0rd!')).resolves.toBe(true);
       expect(result.tokens).toEqual(TOKENS);
-      expect(mailService.send).toHaveBeenCalledWith(
-        expect.objectContaining({ subject: expect.stringContaining('Verify') }),
-      );
+      expect(mailService.send).not.toHaveBeenCalled();
     });
 
     it('never exposes the password hash in the response', async () => {
@@ -120,31 +124,35 @@ describe('AuthService', () => {
       prisma.user.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
         Promise.resolve(makeUser(data)),
       );
-      const result = await service.signup('ada@example.com', 'Str0ngPassw0rd!', 'Ada', {});
+      const result = await service.signup(
+        { name: 'Ada', phone: '14145550100', password: 'Str0ngPassw0rd!' },
+        {},
+      );
       expect(result.user).not.toHaveProperty('passwordHash');
+      expect(result.user.phone).toBe('14145550100');
     });
   });
 
   describe('login', () => {
-    it('rejects unknown emails with a generic message', async () => {
+    it('rejects unknown phones with a generic message', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
-      await expect(service.login('nobody@example.com', 'whatever', {})).rejects.toThrow(
-        'Invalid email or password',
+      await expect(service.login('14145550999', 'whatever', {})).rejects.toThrow(
+        'Invalid phone or password',
       );
     });
 
     it('rejects a wrong password with the same generic message', async () => {
       const passwordHash = await argon2.hash('correct-password');
       prisma.user.findUnique.mockResolvedValue(makeUser({ passwordHash }));
-      await expect(service.login('ada@example.com', 'wrong-password', {})).rejects.toThrow(
-        'Invalid email or password',
+      await expect(service.login('14145550100', 'wrong-password', {})).rejects.toThrow(
+        'Invalid phone or password',
       );
     });
 
     it('rejects suspended accounts even with valid credentials', async () => {
       const passwordHash = await argon2.hash('correct-password');
       prisma.user.findUnique.mockResolvedValue(makeUser({ passwordHash, suspendedAt: new Date() }));
-      await expect(service.login('ada@example.com', 'correct-password', {})).rejects.toThrow(
+      await expect(service.login('14145550100', 'correct-password', {})).rejects.toThrow(
         ForbiddenException,
       );
     });
@@ -152,7 +160,7 @@ describe('AuthService', () => {
     it('rejects soft-deleted accounts', async () => {
       const passwordHash = await argon2.hash('correct-password');
       prisma.user.findUnique.mockResolvedValue(makeUser({ passwordHash, deletedAt: new Date() }));
-      await expect(service.login('ada@example.com', 'correct-password', {})).rejects.toThrow(
+      await expect(service.login('14145550100', 'correct-password', {})).rejects.toThrow(
         UnauthorizedException,
       );
     });
@@ -161,10 +169,17 @@ describe('AuthService', () => {
       const passwordHash = await argon2.hash('correct-password');
       prisma.user.findUnique.mockResolvedValue(makeUser({ passwordHash }));
 
-      const result = await service.login('ada@example.com', 'correct-password', {});
-      expect(result.user.email).toBe('ada@example.com');
+      const result = await service.login('14145550100', 'correct-password', {});
+      expect(result.user.phone).toBe('14145550100');
       expect(result.tokens).toEqual(TOKENS);
       expect(tokenService.issuePair).toHaveBeenCalled();
+    });
+
+    it('still accepts email identifiers for older accounts', async () => {
+      const passwordHash = await argon2.hash('correct-password');
+      prisma.user.findUnique.mockResolvedValue(makeUser({ passwordHash }));
+      const result = await service.login('ada@example.com', 'correct-password', {});
+      expect(result.user.email).toBe('ada@example.com');
     });
   });
 

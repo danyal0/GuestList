@@ -14,6 +14,10 @@ import { AuditService } from '../audit/audit.service';
 import { TokenService, TokenPair } from './token.service';
 import { OAuthService, OAuthIdentity } from './oauth.service';
 import { generateOpaqueToken, hashToken } from '../common/utils/tokens';
+import {
+  isPlausiblePhone,
+  normalizePhoneDigits,
+} from '../common/utils/phone';
 
 export interface AuthResult {
   user: PublicUser;
@@ -22,7 +26,10 @@ export interface AuthResult {
 
 export interface PublicUser {
   id: string;
-  email: string;
+  email: string | null;
+  phone: string | null;
+  whatsappLid: string | null;
+  whatsappLinked: boolean;
   name: string;
   avatarUrl: string | null;
   bio: string | null;
@@ -53,38 +60,63 @@ export class AuthService {
     private readonly config: ConfigService,
   ) {}
 
-  async signup(email: string, password: string, name: string, meta: RequestMeta): Promise<AuthResult> {
-    const existing = await this.prisma.user.findUnique({ where: { email } });
-    if (existing) throw new ConflictException('An account with this email already exists');
+  async signup(
+    input: { name: string; phone: string; password: string; email?: string },
+    meta: RequestMeta,
+  ): Promise<AuthResult> {
+    const phone = normalizePhoneDigits(input.phone);
+    if (!phone || !isPlausiblePhone(phone)) {
+      throw new BadRequestException('Enter a valid phone number');
+    }
 
-    const passwordHash = await argon2.hash(password);
+    const email =
+      input.email && String(input.email).trim()
+        ? String(input.email).toLowerCase().trim()
+        : null;
+
+    const existingPhone = await this.prisma.user.findUnique({ where: { phone } });
+    if (existingPhone) throw new ConflictException('An account with this phone already exists');
+
+    if (email) {
+      const existingEmail = await this.prisma.user.findUnique({ where: { email } });
+      if (existingEmail) throw new ConflictException('An account with this email already exists');
+    }
+
+    const passwordHash = await argon2.hash(input.password);
     const user = await this.prisma.user.create({
-      data: { email, passwordHash, name },
+      data: {
+        name: input.name,
+        phone,
+        email,
+        passwordHash,
+      },
     });
 
     await this.prisma.activityLog.create({ data: { userId: user.id, type: ActivityType.SIGNUP } });
-    await this.sendVerificationEmail(user);
+    if (email) {
+      await this.sendVerificationEmail(user);
+    }
     await this.auditService.log({ actorId: user.id, action: 'auth.signup', ip: meta.ip });
 
     const tokens = await this.tokenService.issuePair(user, meta);
     return { user: this.toPublicUser(user), tokens };
   }
 
-  async login(email: string, password: string, meta: RequestMeta): Promise<AuthResult> {
-    const user = await this.prisma.user.findUnique({ where: { email } });
-    // Run a dummy hash verification on unknown emails so response timing
+  async login(identifier: string, password: string, meta: RequestMeta): Promise<AuthResult> {
+    const user = await this.findUserByIdentifier(identifier);
+    // Run a dummy hash verification on unknown accounts so response timing
     // does not reveal account existence.
     if (!user?.passwordHash) {
       await argon2
         .verify('$argon2id$v=19$m=65536,t=3,p=4$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', password)
         .catch(() => undefined);
-      throw new UnauthorizedException('Invalid email or password');
+      throw new UnauthorizedException('Invalid phone or password');
     }
 
     const valid = await argon2.verify(user.passwordHash, password);
     if (!valid) {
       await this.auditService.log({ actorId: user.id, action: 'auth.login_failed', ip: meta.ip });
-      throw new UnauthorizedException('Invalid email or password');
+      throw new UnauthorizedException('Invalid phone or password');
     }
 
     this.assertAccountUsable(user);
@@ -94,6 +126,20 @@ export class AuthService {
 
     const tokens = await this.tokenService.issuePair(user, meta);
     return { user: this.toPublicUser(user), tokens };
+  }
+
+  private async findUserByIdentifier(identifier: string): Promise<User | null> {
+    const raw = String(identifier).trim();
+    if (!raw) return null;
+
+    const phone = normalizePhoneDigits(raw);
+    if (phone && isPlausiblePhone(phone) && !raw.includes('@')) {
+      return this.prisma.user.findUnique({ where: { phone } });
+    }
+
+    return this.prisma.user.findUnique({
+      where: { email: raw.toLowerCase() },
+    });
   }
 
   async loginWithGoogle(idToken: string, meta: RequestMeta): Promise<AuthResult> {
@@ -123,7 +169,7 @@ export class AuthService {
   async forgotPassword(email: string): Promise<void> {
     const user = await this.prisma.user.findUnique({ where: { email } });
     // Always succeed to prevent account enumeration.
-    if (!user || user.deletedAt) return;
+    if (!user || user.deletedAt || !user.email) return;
 
     const token = await this.createEmailToken(user.id, EmailTokenType.RESET_PASSWORD, RESET_TTL_MS);
     const webUrl = this.config.get<string>('webUrl');
@@ -175,6 +221,7 @@ export class AuthService {
 
   async resendVerification(userId: string): Promise<void> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    if (!user.email) throw new BadRequestException('This account has no email address');
     if (user.emailVerifiedAt) throw new BadRequestException('Email is already verified');
     await this.sendVerificationEmail(user);
   }
@@ -188,6 +235,9 @@ export class AuthService {
     return {
       id: user.id,
       email: user.email,
+      phone: user.phone,
+      whatsappLid: user.whatsappLid,
+      whatsappLinked: Boolean(user.whatsappLid),
       name: user.name,
       avatarUrl: user.avatarUrl,
       bio: user.bio,
@@ -252,6 +302,7 @@ export class AuthService {
   }
 
   private async sendVerificationEmail(user: User): Promise<void> {
+    if (!user.email) return;
     const token = await this.createEmailToken(user.id, EmailTokenType.VERIFY_EMAIL, VERIFY_TTL_MS);
     const webUrl = this.config.get<string>('webUrl');
     await this.mailService.send({

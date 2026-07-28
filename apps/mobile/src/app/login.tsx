@@ -16,14 +16,14 @@ interface AuthResponse {
 export default function LoginScreen() {
   const { colors } = useTheme();
   const router = useRouter();
-  const [email, setEmail] = React.useState('');
+  const [identifier, setIdentifier] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
 
   const submit = async () => {
-    if (!email.trim() || !password) {
-      setError('Enter your email and password.');
+    if (!identifier.trim() || !password) {
+      setError('Enter your phone and password.');
       return;
     }
     setError(null);
@@ -31,7 +31,7 @@ export default function LoginScreen() {
     try {
       const result = await api<AuthResponse>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ identifier: identifier.trim(), password }),
         skipRefresh: true,
       });
       await storeSession(result);
@@ -52,18 +52,18 @@ export default function LoginScreen() {
         <View style={{ gap: 4 }}>
           <Text style={{ fontSize: 28, fontWeight: '800', color: colors.ink }}>Welcome back</Text>
           <Text style={{ fontSize: 15, color: colors.inkSecondary }}>
-            Sign in to pick up where you left off.
+            Sign in with your phone to pick up where you left off.
           </Text>
         </View>
 
         <TextField
-          label="Email"
-          value={email}
-          onChangeText={setEmail}
+          label="Phone"
+          value={identifier}
+          onChangeText={setIdentifier}
           autoCapitalize="none"
-          autoComplete="email"
-          keyboardType="email-address"
-          placeholder="you@example.com"
+          autoComplete="tel"
+          keyboardType="phone-pad"
+          placeholder="+1 414 555 0100"
         />
         <TextField
           label="Password"

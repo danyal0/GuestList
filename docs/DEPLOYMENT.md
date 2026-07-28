@@ -92,9 +92,11 @@ The bot can run **inside the same Railway service** as a sibling process.
 | --- | --- |
 | `WHATSAPP_BOT_ENABLED` | `true` |
 | `WHATSAPP_BOT_TOKEN` | long random secret (same value used by Next.js routes) |
-| `WHATSAPP_GROUP_NAME` | `Tennis Group` (exact group title) |
+| `WHATSAPP_GROUP_NAME` | `Tennis Group` (exact WhatsApp title; also used to find an MKE Plays community by name if id unset) |
 | `XAI_API_KEY` | from https://console.x.ai |
-| `WHATSAPP_DEFAULT_GROUP_ID` | cuid of your tennis community |
+| `WHATSAPP_DEFAULT_GROUP_ID` | optional cuid; if unset we fall back to name/slug/SPORTS group |
+| `WHATSAPP_DEFAULT_GROUP_SLUG` | optional, e.g. `mke-tennis-group` |
+| `WHATSAPP_DEFAULT_GROUP_NAME` | optional name contains match (defaults toward `Tennis`) |
 | `DATABASE_URL` | Postgres URL (required for `/api/whatsapp/*` writes) |
 | `DATA_SOURCE` | `postgres` |
 | `PUPPETEER_EXECUTABLE_PATH` | `/usr/bin/chromium` (default in railpack) |

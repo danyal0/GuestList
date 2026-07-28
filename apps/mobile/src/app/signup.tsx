@@ -17,7 +17,7 @@ export default function SignupScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const [name, setName] = React.useState('');
-  const [email, setEmail] = React.useState('');
+  const [phone, setPhone] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [formError, setFormError] = React.useState<string | null>(null);
@@ -25,9 +25,10 @@ export default function SignupScreen() {
 
   const validate = (): boolean => {
     const next: Record<string, string> = {};
+    const digits = phone.replace(/\D/g, '');
     if (name.trim().length < 2) next.name = 'Enter your full name.';
-    if (!/^\S+@\S+\.\S+$/.test(email.trim())) next.email = 'Enter a valid email address.';
-    if (password.length < 10) next.password = 'Use at least 10 characters.';
+    if (digits.length < 7 || digits.length > 15) next.phone = 'Enter a valid phone number.';
+    if (password.length < 8) next.password = 'Use at least 8 characters.';
     else if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password))
       next.password = 'Include upper and lower case letters and a number.';
     setErrors(next);
@@ -41,7 +42,7 @@ export default function SignupScreen() {
     try {
       const result = await api<AuthResponse>('/auth/signup', {
         method: 'POST',
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), password }),
+        body: JSON.stringify({ name: name.trim(), phone: phone.trim(), password }),
         skipRefresh: true,
       });
       await storeSession(result);
@@ -62,7 +63,7 @@ export default function SignupScreen() {
         <View style={{ gap: 4 }}>
           <Text style={{ fontSize: 28, fontWeight: '800', color: colors.ink }}>Join MKE Plays</Text>
           <Text style={{ fontSize: 15, color: colors.inkSecondary }}>
-            Discover communities and events near you — free.
+            Name, phone, password — then link WhatsApp from your tennis group.
           </Text>
         </View>
 
@@ -75,22 +76,21 @@ export default function SignupScreen() {
           error={errors.name}
         />
         <TextField
-          label="Email"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          autoComplete="email"
-          keyboardType="email-address"
-          placeholder="you@example.com"
-          error={errors.email}
+          label="Phone"
+          value={phone}
+          onChangeText={setPhone}
+          autoComplete="tel"
+          keyboardType="phone-pad"
+          placeholder="+1 414 555 0100"
+          error={errors.phone}
         />
         <TextField
           label="Password"
           value={password}
           onChangeText={setPassword}
           secureTextEntry
-          autoComplete="new-password"
-          placeholder="At least 10 characters"
+          autoComplete="password-new"
+          placeholder="8+ characters, mixed case, a number"
           error={errors.password}
           onSubmitEditing={() => void submit()}
         />
@@ -103,7 +103,7 @@ export default function SignupScreen() {
 
         <Button title="Create account" size="lg" loading={loading} onPress={() => void submit()} />
         <Button
-          title="Already have an account? Sign in"
+          title="Already a member? Sign in"
           variant="ghost"
           onPress={() => {
             router.dismiss();

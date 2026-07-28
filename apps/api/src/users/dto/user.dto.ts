@@ -53,4 +53,11 @@ export class UpdateUserDto {
   @IsString({ each: true })
   @MaxLength(40, { each: true })
   skills?: string[];
+
+  /** Digits or formatted phone — normalized server-side. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  phone?: string;
 }

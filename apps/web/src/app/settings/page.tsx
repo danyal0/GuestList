@@ -175,7 +175,7 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      {!user.emailVerified && (
+      {!user.emailVerified && user.email && (
         <div className="flex items-center justify-between gap-4 rounded-[var(--radius-lg)] border border-[var(--color-warning)]/40 bg-[color-mix(in_srgb,var(--color-warning)_8%,transparent)] p-4">
           <p className="text-[14px]">
             <strong>Verify your email</strong> to unlock all features.
@@ -190,6 +190,28 @@ export default function SettingsPage() {
           </Button>
         </div>
       )}
+
+      <section className="rounded-[var(--radius-lg)] border border-[var(--color-hairline)] p-4">
+        <h2 className="text-[15px] font-bold">Account</h2>
+        <dl className="mt-3 space-y-2 text-[14px]">
+          <div className="flex justify-between gap-4">
+            <dt className="text-[var(--color-ink-tertiary)]">Phone</dt>
+            <dd className="font-medium">{user.phone ?? 'Not set'}</dd>
+          </div>
+          <div className="flex justify-between gap-4">
+            <dt className="text-[var(--color-ink-tertiary)]">WhatsApp</dt>
+            <dd className="font-medium">
+              {user.whatsappLinked ? 'Linked' : 'Not linked yet — message your tennis group'}
+            </dd>
+          </div>
+          {user.email ? (
+            <div className="flex justify-between gap-4">
+              <dt className="text-[var(--color-ink-tertiary)]">Email</dt>
+              <dd className="font-medium">{user.email}</dd>
+            </div>
+          ) : null}
+        </dl>
+      </section>
 
       {/* Avatar */}
       <section className="flex items-center gap-5">

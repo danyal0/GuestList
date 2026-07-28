@@ -16,14 +16,14 @@ describe('passwordSchema', () => {
 });
 
 describe('signupSchema', () => {
-  const valid = { name: 'Ada', email: 'ada@example.com', password: 'Passw0rdOk' };
+  const valid = { name: 'Ada', phone: '+14145550100', password: 'Passw0rdOk' };
 
   it('accepts a valid signup', () => {
     expect(signupSchema.safeParse(valid).success).toBe(true);
   });
 
-  it('rejects invalid emails', () => {
-    expect(signupSchema.safeParse({ ...valid, email: 'not-an-email' }).success).toBe(false);
+  it('rejects invalid phones', () => {
+    expect(signupSchema.safeParse({ ...valid, phone: '123' }).success).toBe(false);
   });
 
   it('rejects an empty name after trimming', () => {
@@ -33,8 +33,8 @@ describe('signupSchema', () => {
 
 describe('loginSchema', () => {
   it('requires a non-empty password but no complexity', () => {
-    expect(loginSchema.safeParse({ email: 'a@b.co', password: 'x' }).success).toBe(true);
-    expect(loginSchema.safeParse({ email: 'a@b.co', password: '' }).success).toBe(false);
+    expect(loginSchema.safeParse({ identifier: '4145550100', password: 'x' }).success).toBe(true);
+    expect(loginSchema.safeParse({ identifier: '4145550100', password: '' }).success).toBe(false);
   });
 });
 

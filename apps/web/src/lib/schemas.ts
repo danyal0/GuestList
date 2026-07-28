@@ -10,12 +10,19 @@ export const passwordSchema = z
 
 export const signupSchema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(80),
-  email: z.string().trim().email('Enter a valid email'),
+  phone: z
+    .string()
+    .trim()
+    .min(1, 'Phone is required')
+    .refine((v) => {
+      const digits = v.replace(/\D/g, '');
+      return digits.length >= 7 && digits.length <= 15;
+    }, 'Enter a valid phone number'),
   password: passwordSchema,
 });
 
 export const loginSchema = z.object({
-  email: z.string().trim().email('Enter a valid email'),
+  identifier: z.string().trim().min(1, 'Phone is required').max(254),
   password: z.string().min(1, 'Password is required'),
 });
 
