@@ -150,6 +150,7 @@ export class ProfilesService {
       },
     });
 
+    let friendshipId: string;
     if (existing) {
       if (existing.status === FriendshipStatus.ACCEPTED) {
         throw new ConflictException('You are already friends');
@@ -158,12 +159,14 @@ export class ProfilesService {
         throw new ConflictException('A friend request is already pending');
       }
       // A previously declined request can be retried.
-      await this.prisma.friendship.update({
+      const updated = await this.prisma.friendship.update({
         where: { id: existing.id },
         data: { requesterId, addresseeId, status: FriendshipStatus.PENDING, respondedAt: null },
       });
+      friendshipId = updated.id;
     } else {
-      await this.prisma.friendship.create({ data: { requesterId, addresseeId } });
+      const created = await this.prisma.friendship.create({ data: { requesterId, addresseeId } });
+      friendshipId = created.id;
     }
 
     const requester = await this.prisma.user.findUniqueOrThrow({
@@ -173,12 +176,29 @@ export class ProfilesService {
     this.eventEmitter.emit(NOTIFY_EVENT, {
       userId: addresseeId,
       type: NotificationType.FRIEND_REQUEST,
-      payload: { fromUserId: requesterId, fromName: requester.name },
+      payload: {
+        fromUserId: requesterId,
+        fromName: requester.name,
+        friendshipId,
+      },
     });
   }
 
-  async respondToFriendRequest(userId: string, friendshipId: string, accept: boolean): Promise<void> {
-    const friendship = await this.prisma.friendship.findUnique({ where: { id: friendshipId } });
+  async respondToFriendRequest(userId: string, friendshipIdOrRequesterId: string, accept: boolean): Promise<void> {
+    let friendship = await this.prisma.friendship.findUnique({
+      where: { id: friendshipIdOrRequesterId },
+    });
+    // Notifications created before friendshipId was in the payload only have fromUserId —
+    // also allow responding by requester id for pending inbound requests.
+    if (!friendship) {
+      friendship = await this.prisma.friendship.findFirst({
+        where: {
+          addresseeId: userId,
+          requesterId: friendshipIdOrRequesterId,
+          status: FriendshipStatus.PENDING,
+        },
+      });
+    }
     if (!friendship || friendship.status !== FriendshipStatus.PENDING) {
       throw new NotFoundException('Friend request not found');
     }
@@ -187,7 +207,7 @@ export class ProfilesService {
     }
 
     await this.prisma.friendship.update({
-      where: { id: friendshipId },
+      where: { id: friendship.id },
       data: {
         status: accept ? FriendshipStatus.ACCEPTED : FriendshipStatus.DECLINED,
         respondedAt: new Date(),

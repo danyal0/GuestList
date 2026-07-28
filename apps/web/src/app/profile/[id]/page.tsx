@@ -37,6 +37,21 @@ export default function ProfilePage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not send request'),
   });
 
+  const respondFriend = useMutation({
+    mutationFn: (accept: boolean) =>
+      api(`/profiles/friend-requests/${id}/${accept ? 'accept' : 'decline'}`, {
+        method: 'POST',
+        body: '{}',
+      }),
+    onSuccess: (_data, accept) => {
+      toast.success(accept ? 'Friend request accepted' : 'Friend request declined');
+      void queryClient.invalidateQueries({ queryKey: ['profile', id] });
+      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Could not update friend request'),
+  });
+
   const openChat = async () => {
     try {
       const conversation = await api<{ id: string }>('/messaging/conversations/direct', {
@@ -123,6 +138,25 @@ export default function ProfilePage() {
                 <Button disabled variant="outline">
                   Request sent
                 </Button>
+              )}
+              {friendshipStatus === 'pending_received' && (
+                <>
+                  <Button
+                    onClick={() => respondFriend.mutate(true)}
+                    loading={respondFriend.isPending && respondFriend.variables === true}
+                    disabled={respondFriend.isPending}
+                  >
+                    Accept request
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => respondFriend.mutate(false)}
+                    loading={respondFriend.isPending && respondFriend.variables === false}
+                    disabled={respondFriend.isPending}
+                  >
+                    Decline
+                  </Button>
+                </>
               )}
               {friendshipStatus === 'friends' && <Badge variant="success">Friends</Badge>}
             </>
