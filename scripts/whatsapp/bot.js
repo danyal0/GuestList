@@ -11,6 +11,7 @@
 
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 
 // Prefer repo-root `.env`, then `scripts/whatsapp/.env`.
@@ -359,10 +360,77 @@ function intentFromReactionEmoji(emoji) {
 
 // ─────────────────────────── Client bootstrap ───────────────────────────
 
+const AUTH_DATA_PATH =
+  process.env.WHATSAPP_AUTH_PATH || path.resolve(__dirname, '.wwebjs_auth');
+const WHATSAPP_CLIENT_ID =
+  process.env.WHATSAPP_CLIENT_ID || 'mkeplays-tennis-bot';
+
+/**
+ * After a Railway redeploy, Chromium leaves SingletonLock files on the volume
+ * that reference the old container hostname. Clear them before launch so the
+ * new process can open the same LocalAuth profile without Code 21.
+ * @param {string} rootDir
+ */
+function clearStaleChromiumLocks(rootDir) {
+  const lockNames = new Set([
+    'SingletonLock',
+    'SingletonCookie',
+    'SingletonSocket',
+    'lockfile',
+  ]);
+
+  if (!fs.existsSync(rootDir)) return;
+
+  /** @type {string[]} */
+  const removed = [];
+  /** @type {string[]} */
+  const stack = [rootDir];
+
+  while (stack.length) {
+    const dir = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+        continue;
+      }
+      if (
+        lockNames.has(entry.name) ||
+        entry.name.startsWith('Singleton') ||
+        entry.name === 'DevToolsActivePort'
+      ) {
+        try {
+          fs.rmSync(full, { force: true });
+          removed.push(full);
+        } catch (err) {
+          console.warn(
+            `[whatsapp-bot] Could not remove lock ${full}: ${err.message}`,
+          );
+        }
+      }
+    }
+  }
+
+  if (removed.length) {
+    console.log(
+      `[whatsapp-bot] Cleared ${removed.length} stale Chromium lock file(s) under ${rootDir}`,
+    );
+  }
+}
+
+clearStaleChromiumLocks(AUTH_DATA_PATH);
+
 const client = new Client({
   authStrategy: new LocalAuth({
-    clientId: process.env.WHATSAPP_CLIENT_ID || 'mkeplays-tennis-bot',
-    dataPath: process.env.WHATSAPP_AUTH_PATH || path.resolve(__dirname, '.wwebjs_auth'),
+    clientId: WHATSAPP_CLIENT_ID,
+    dataPath: AUTH_DATA_PATH,
   }),
   puppeteer: {
     headless: true,
@@ -532,12 +600,21 @@ client.initialize().catch((err) => {
   process.exit(1);
 });
 
-process.on('SIGINT', async () => {
-  console.log('\n[whatsapp-bot] Shutting down…');
+async function gracefulShutdown(signal) {
+  console.log(`\n[whatsapp-bot] ${signal} — shutting down…`);
   try {
     await client.destroy();
   } catch {
     // ignore
   }
+  // Extra safety for volume-backed profiles on Railway.
+  clearStaleChromiumLocks(AUTH_DATA_PATH);
   process.exit(0);
+}
+
+process.on('SIGINT', () => {
+  void gracefulShutdown('SIGINT');
+});
+process.on('SIGTERM', () => {
+  void gracefulShutdown('SIGTERM');
 });

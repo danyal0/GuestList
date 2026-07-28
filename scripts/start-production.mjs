@@ -92,6 +92,45 @@ function spawnProcess(label, command, args, env = {}, opts = {}) {
   });
 }
 
+function clearChromiumLocks(rootDir) {
+  const lockNames = new Set([
+    'SingletonLock',
+    'SingletonCookie',
+    'SingletonSocket',
+    'lockfile',
+    'DevToolsActivePort',
+  ]);
+  if (!fs.existsSync(rootDir)) return 0;
+
+  let removed = 0;
+  const stack = [rootDir];
+  while (stack.length) {
+    const dir = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+        continue;
+      }
+      if (lockNames.has(entry.name) || entry.name.startsWith('Singleton')) {
+        try {
+          fs.rmSync(full, { force: true });
+          removed += 1;
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+  return removed;
+}
+
 function spawnWhatsappBot() {
   if (!WHATSAPP_BOT_ENABLED) return;
 
@@ -101,6 +140,12 @@ function spawnWhatsappBot() {
     fs.mkdirSync(authPath, { recursive: true });
   } catch (err) {
     log(`warning: could not create WhatsApp auth dir ${authPath}: ${err.message}`);
+  }
+
+  // Redeploys leave Chromium SingletonLock files pointing at the old hostname.
+  const cleared = clearChromiumLocks(authPath);
+  if (cleared > 0) {
+    log(`cleared ${cleared} stale Chromium lock file(s) under ${authPath}`);
   }
 
   const botDir = path.resolve(__dirname, 'whatsapp');
