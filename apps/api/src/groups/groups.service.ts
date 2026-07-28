@@ -60,6 +60,9 @@ export class GroupsService {
           description: dto.description,
           category: dto.category,
           privacy: dto.privacy ?? GroupPrivacy.PUBLIC,
+          // Owner membership is created below; keep the denormalized counter in sync
+          // even when the file data source does not apply Prisma @default(1).
+          memberCount: 1,
           rules: dto.rules,
           coverImage: dto.coverImage,
           location: dto.location,

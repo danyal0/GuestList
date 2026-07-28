@@ -557,6 +557,12 @@ function delegate(model: string) {
         if (data.skills === undefined) data.skills = [];
         if (data.role === undefined) data.role = 'USER';
       }
+      // Mirror Prisma @default on Group — production often runs DATA_SOURCE=file.
+      if (model === 'group') {
+        if (data.memberCount === undefined) data.memberCount = 1;
+        if (data.isVerified === undefined) data.isVerified = false;
+        if (data.privacy === undefined) data.privacy = 'PUBLIC';
+      }
       // Nested creates used by messaging / groups
       const participants = data.participants as { create?: unknown } | undefined;
       delete data.participants;

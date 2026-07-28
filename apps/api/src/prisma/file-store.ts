@@ -240,6 +240,24 @@ export class FileStore {
       }
     }
 
+    for (const group of this.db.groups) {
+      if (typeof group.memberCount !== 'number') {
+        const activeMembers = this.db.groupMembers.filter(
+          (m) => m.groupId === group.id && (m.status === 'ACTIVE' || m.status == null),
+        ).length;
+        group.memberCount = Math.max(1, activeMembers);
+        changed = true;
+      }
+      if (group.isVerified === undefined) {
+        group.isVerified = false;
+        changed = true;
+      }
+      if (!group.privacy) {
+        group.privacy = 'PUBLIC';
+        changed = true;
+      }
+    }
+
     const hasTennis = this.db.groups.some(
       (g) => typeof g.name === 'string' && /tennis/i.test(g.name),
     );
