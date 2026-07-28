@@ -251,6 +251,83 @@ export async function findOrLinkWhatsappUser(
   return toIdentity(user);
 }
 
+/**
+ * Find an active user by display name (exact, then starts-with, then contains).
+ * Used to auto-RSVP people named in WhatsApp match invites (e.g. "Khatera is going").
+ */
+export async function findUserByDisplayName(
+  prisma: PrismaService,
+  rawName: string,
+): Promise<WhatsappUserIdentity | null> {
+  const name = rawName.trim();
+  if (name.length < 2 || name.length > 80) return null;
+
+  const exact = await prisma.user.findFirst({
+    where: {
+      deletedAt: null,
+      name: { equals: name, mode: 'insensitive' },
+    },
+    select: { id: true, name: true, phone: true, whatsappLid: true },
+  });
+  if (exact) return exact;
+
+  const starts = await prisma.user.findFirst({
+    where: {
+      deletedAt: null,
+      name: { startsWith: name, mode: 'insensitive' },
+    },
+    select: { id: true, name: true, phone: true, whatsappLid: true },
+  });
+  if (starts) return starts;
+
+  // Avoid ultra-short contains matches ("an", "al").
+  if (name.length < 3) return null;
+
+  const contains = await prisma.user.findFirst({
+    where: {
+      deletedAt: null,
+      name: { contains: name, mode: 'insensitive' },
+    },
+    select: { id: true, name: true, phone: true, whatsappLid: true },
+  });
+  return contains;
+}
+
+/**
+ * Create a lightweight placeholder account for a named WhatsApp attendee
+ * who is not yet on MKE Plays — so "Khatera is going" still shows 2 going.
+ */
+export async function findOrCreateNamedAttendee(
+  prisma: PrismaService,
+  rawName: string,
+): Promise<WhatsappUserIdentity | null> {
+  const existing = await findUserByDisplayName(prisma, rawName);
+  if (existing) return existing;
+
+  const name = rawName.trim();
+  if (name.length < 2 || name.length > 80) return null;
+
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 24);
+
+  const created = await prisma.user.create({
+    data: {
+      name,
+      phone: null,
+      whatsappLid: null,
+      email: `named-${slug || 'attendee'}-${Date.now().toString(36)}@wa.mkeplays.app`,
+      passwordHash: null,
+      deletedAt: null,
+      suspendedAt: null,
+    },
+    select: { id: true, name: true, phone: true, whatsappLid: true },
+  });
+  return created;
+}
+
 export type GroupRef = { id: string; name: string };
 
 /**

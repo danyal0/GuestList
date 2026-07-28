@@ -152,7 +152,9 @@ export default function EventScreen() {
             )}
             <FactRow icon="people-outline" colors={colors}>
               {e.goingCount} going · {e.interestedCount} interested
-              {e.capacity !== null && ` · ${e.capacity} max`}
+              {typeof e.capacity === 'number' && Number.isFinite(e.capacity)
+                ? ` · ${e.capacity} max`
+                : ''}
               {e.waitlistCount > 0 && ` · ${e.waitlistCount} waitlisted`}
             </FactRow>
           </View>

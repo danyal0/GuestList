@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { normalizeCapacity } from '../common/utils/capacity';
 
 export interface TimeSeriesPoint {
   date: string;
@@ -125,15 +126,18 @@ export class AnalyticsService {
         _count: { select: { rsvps: { where: { status: 'GOING' } } } },
       },
     });
-    return rows.map((e) => ({
-      eventId: e.id,
-      title: e.title,
-      startTime: e.startTime,
-      capacity: e.capacity,
-      goingCount: e._count.rsvps,
-      attendanceRate:
-        e.capacity !== null ? Math.round((e._count.rsvps / e.capacity) * 100) : null,
-    }));
+    return rows.map((e) => {
+      const capacity = normalizeCapacity(e.capacity);
+      return {
+        eventId: e.id,
+        title: e.title,
+        startTime: e.startTime,
+        capacity,
+        goingCount: e._count.rsvps,
+        attendanceRate:
+          capacity !== null ? Math.round((e._count.rsvps / capacity) * 100) : null,
+      };
+    });
   }
 
   async overview() {

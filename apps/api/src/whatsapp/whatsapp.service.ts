@@ -10,14 +10,16 @@ import { PrismaService } from '../prisma/prisma.service';
 import { digitsOnly } from './whatsapp-bot.guard';
 import {
   buildEventDescription,
+  inferEventCapacity,
+  mergeNamedAttendees,
   preferPmForTennisHour,
   resolveCatalogVenue,
 } from './whatsapp-event-enrich';
 import {
+  findOrCreateNamedAttendee,
   findOrLinkWhatsappUser,
   resolveWhatsappDefaultGroup,
 } from './whatsapp-identity';
-
 @Injectable()
 export class WhatsappService {
   private readonly logger = new Logger(WhatsappService.name);
@@ -46,6 +48,9 @@ export class WhatsappService {
     skillLevel?: string | null;
     courtInfo?: string | null;
     durationMinutes?: number | null;
+    capacity?: number | null;
+    capacityConfidence?: number | null;
+    namedAttendees?: string[] | null;
     timezone?: string | null;
     confidence?: number;
   }) {
@@ -222,6 +227,20 @@ export class WhatsappService {
     // Instructions: only from the message/AI when present — no invented defaults.
     const instructions = body.instructions?.trim() || null;
 
+    const namedAttendees = mergeNamedAttendees(
+      body.namedAttendees,
+      messageBody,
+      [host.name, body.senderName ?? ''].filter(Boolean),
+    );
+
+    const capacity = inferEventCapacity({
+      aiCapacity: body.capacity,
+      capacityConfidence: body.capacityConfidence,
+      courtInfo: body.courtInfo,
+      messageBody,
+      venue: catalog,
+    });
+
     const description = buildEventDescription({
       messageBody,
       instructions,
@@ -230,10 +249,12 @@ export class WhatsappService {
       courtInfo: body.courtInfo,
       suggestedTime: body.suggestedTime,
       whatsappMessageId,
+      capacity,
+      namedAttendees,
     });
 
     this.logger.log(
-      `Creating event "${title}" venue=${catalog?.slug ?? 'n/a'} @ ${locationName ?? 'n/a'} ${address ?? ''} ${startTime.toISOString()} (${timezone})`,
+      `Creating event "${title}" venue=${catalog?.slug ?? 'n/a'} capacity=${capacity ?? 'unlimited'} attendees=[${namedAttendees.join(',')}] @ ${locationName ?? 'n/a'} ${address ?? ''} ${startTime.toISOString()} (${timezone})`,
     );
 
     const event = await this.prisma.event.create({
@@ -251,6 +272,7 @@ export class WhatsappService {
         timezone,
         startTime,
         endTime,
+        capacity,
         status: 'PUBLISHED',
         visibility: 'PUBLIC',
         whatsappMessageId,
@@ -265,6 +287,7 @@ export class WhatsappService {
         latitude: true,
         longitude: true,
         timezone: true,
+        capacity: true,
         venueId: true,
         whatsappMessageId: true,
         hostId: true,
@@ -286,7 +309,33 @@ export class WhatsappService {
       },
     });
 
-    return { ok: true, event };
+    const autoRsvped: Array<{ id: string; name: string }> = [];
+    for (const attendeeName of namedAttendees) {
+      try {
+        const person = await findOrCreateNamedAttendee(this.prisma, attendeeName);
+        if (!person || person.id === host.id) continue;
+        await this.prisma.rsvp.upsert({
+          where: {
+            eventId_userId: { eventId: event.id, userId: person.id },
+          },
+          create: {
+            eventId: event.id,
+            userId: person.id,
+            status: 'GOING',
+          },
+          update: {
+            status: 'GOING',
+          },
+        });
+        autoRsvped.push({ id: person.id, name: person.name });
+      } catch (err) {
+        this.logger.warn(
+          `Failed to auto-RSVP named attendee "${attendeeName}": ${(err as Error).message}`,
+        );
+      }
+    }
+
+    return { ok: true, event, namedAttendees: autoRsvped, capacity };
   }
 
   private async upsertCatalogVenue(catalog: {

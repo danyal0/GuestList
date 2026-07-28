@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class WhatsappCreateEventDto {
   @IsOptional()
@@ -88,6 +88,19 @@ export class WhatsappCreateEventDto {
   @IsOptional()
   @IsNumber()
   durationMinutes?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  capacity?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  capacityConfidence?: number | null;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  namedAttendees?: string[] | null;
 
   @IsOptional()
   @IsString()
