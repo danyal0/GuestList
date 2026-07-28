@@ -8,17 +8,138 @@ export type WhatsappUserIdentity = {
   whatsappLid: string | null;
 };
 
+type UserRow = WhatsappUserIdentity & {
+  passwordHash?: string | null;
+};
+
 function isPlausiblePhone(digits: string): boolean {
   return digits.length >= 7 && digits.length <= 15;
 }
 
+const identitySelect = {
+  id: true,
+  name: true,
+  phone: true,
+  whatsappLid: true,
+  passwordHash: true,
+} as const;
+
+function toIdentity(user: UserRow): WhatsappUserIdentity {
+  return {
+    id: user.id,
+    name: user.name,
+    phone: user.phone,
+    whatsappLid: user.whatsappLid,
+  };
+}
+
+/**
+ * Prefer the account that can log into the web app; otherwise keep the LID row.
+ */
+export function pickSurvivor(a: UserRow, b: UserRow): { survivor: UserRow; loser: UserRow } {
+  const aHasPass = Boolean(a.passwordHash);
+  const bHasPass = Boolean(b.passwordHash);
+  if (aHasPass && !bHasPass) return { survivor: a, loser: b };
+  if (bHasPass && !aHasPass) return { survivor: b, loser: a };
+  // Both (or neither) have passwords — prefer the one that already has a LID.
+  if (a.whatsappLid && !b.whatsappLid) return { survivor: a, loser: b };
+  if (b.whatsappLid && !a.whatsappLid) return { survivor: b, loser: a };
+  // Stable: keep the older-looking id lexicographically (cuid/random — either is fine).
+  return a.id <= b.id ? { survivor: a, loser: b } : { survivor: b, loser: a };
+}
+
+/**
+ * Fold loser into survivor: move events/RSVPs, copy phone/LID/name, soft-delete loser.
+ */
+export async function mergeWhatsappUsers(
+  prisma: PrismaService,
+  survivor: UserRow,
+  loser: UserRow,
+  extras: { phone?: string | null; lid?: string | null; name?: string | null },
+): Promise<WhatsappUserIdentity> {
+  if (survivor.id === loser.id) return toIdentity(survivor);
+
+  await prisma.event.updateMany({
+    where: { hostId: loser.id },
+    data: { hostId: survivor.id },
+  });
+
+  const loserRsvps = await prisma.rsvp.findMany({
+    where: { userId: loser.id },
+    select: { id: true, eventId: true, status: true },
+  });
+  for (const rsvp of loserRsvps) {
+    await prisma.rsvp.upsert({
+      where: {
+        eventId_userId: { eventId: rsvp.eventId, userId: survivor.id },
+      },
+      create: {
+        eventId: rsvp.eventId,
+        userId: survivor.id,
+        status: rsvp.status,
+      },
+      update: { status: rsvp.status },
+    });
+    await prisma.rsvp.delete({ where: { id: rsvp.id } });
+  }
+
+  // Free unique phone/LID on loser before writing them onto survivor.
+  await prisma.user.update({
+    where: { id: loser.id },
+    data: {
+      deletedAt: new Date(),
+      phone: null,
+      whatsappLid: null,
+      email: `merged-${loser.id}@deleted.mkeplays.app`,
+      passwordHash: null,
+      name: 'Merged WhatsApp identity',
+    },
+  });
+
+  const phone =
+    extras.phone || survivor.phone || loser.phone || null;
+  const lid = extras.lid || survivor.whatsappLid || loser.whatsappLid || null;
+  let name = survivor.name;
+  const nameHint = extras.name?.trim();
+  if (
+    nameHint &&
+    nameHint.length >= 2 &&
+    nameHint.length <= 80 &&
+    (survivor.name.startsWith('WhatsApp ') ||
+      !survivor.passwordHash ||
+      survivor.name === survivor.phone)
+  ) {
+    name = nameHint;
+  } else if (
+    loser.name &&
+    !loser.name.startsWith('WhatsApp ') &&
+    survivor.name.startsWith('WhatsApp ')
+  ) {
+    name = loser.name;
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: survivor.id },
+    data: {
+      phone,
+      whatsappLid: lid,
+      name,
+      deletedAt: null,
+    },
+    select: { id: true, name: true, phone: true, whatsappLid: true },
+  });
+
+  return updated;
+}
+
 /**
  * Resolve a MKE Plays user from WhatsApp sender identity.
- * Preference: whatsappLid → phone → endsWith phone.
- * When found, persist newly learned LID / phone / name links.
- * When missing but we have a phone and/or LID, auto-create a lightweight
- * account so events/RSVPs work without a prior web signup (claimable later
- * by signing up with the same phone).
+ *
+ * - LID-only → find or auto-create (phone optional)
+ * - Phone-only → find or auto-create
+ * - Both → find each; if two different users, merge into one and keep LID+phone
+ * - Signup later with phone claims passwordless WhatsApp users; next WhatsApp
+ *   message with LID links/merges into that account.
  */
 export async function findOrLinkWhatsappUser(
   prisma: PrismaService,
@@ -43,24 +164,37 @@ export async function findOrLinkWhatsappUser(
   const autoCreate = input.autoCreate !== false;
   const nameHint = input.senderName?.trim() || null;
 
-  let user: WhatsappUserIdentity | null = null;
+  let byLid: UserRow | null = null;
+  let byPhone: UserRow | null = null;
 
   if (lid) {
-    user = await prisma.user.findFirst({
+    byLid = await prisma.user.findFirst({
       where: { whatsappLid: lid, deletedAt: null },
-      select: { id: true, name: true, phone: true, whatsappLid: true },
+      select: identitySelect,
     });
   }
 
-  if (!user && phone) {
-    user = await prisma.user.findFirst({
+  if (phone) {
+    byPhone = await prisma.user.findFirst({
       where: {
         OR: [{ phone }, { phone: { endsWith: phone } }],
         deletedAt: null,
       },
-      select: { id: true, name: true, phone: true, whatsappLid: true },
+      select: identitySelect,
     });
   }
+
+  // Two different accounts for the same person → merge.
+  if (byLid && byPhone && byLid.id !== byPhone.id) {
+    const { survivor, loser } = pickSurvivor(byLid, byPhone);
+    return mergeWhatsappUsers(prisma, survivor, loser, {
+      phone,
+      lid,
+      name: nameHint,
+    });
+  }
+
+  let user: UserRow | null = byLid || byPhone;
 
   if (!user) {
     if (!autoCreate || (!phone && !lid)) return null;
@@ -71,7 +205,7 @@ export async function findOrLinkWhatsappUser(
         : null) ||
       (phone ? `WhatsApp ${phone.slice(-4)}` : `WhatsApp ${lid!.slice(-6)}`);
 
-    user = await prisma.user.create({
+    const created = await prisma.user.create({
       data: {
         name: displayName,
         phone: phone ?? null,
@@ -84,32 +218,37 @@ export async function findOrLinkWhatsappUser(
       select: { id: true, name: true, phone: true, whatsappLid: true },
     });
 
-    return user;
+    return created;
   }
 
   const patch: { whatsappLid?: string; phone?: string; name?: string } = {};
-  if (lid && !user.whatsappLid) patch.whatsappLid = lid;
-  if (phone && !user.phone && isPlausiblePhone(phone)) {
-    patch.phone = phone;
-  }
+  if (lid && user.whatsappLid !== lid) patch.whatsappLid = lid;
+  if (phone && user.phone !== phone) patch.phone = phone;
   if (nameHint && nameHint.length >= 2 && nameHint.length <= 80 && user.name !== nameHint) {
     const placeholder =
       !user.name ||
       user.name.startsWith('WhatsApp ') ||
-      user.name === phone ||
+      user.name === user.phone ||
       user.name === lid;
     if (placeholder) patch.name = nameHint;
   }
 
   if (Object.keys(patch).length > 0) {
-    user = await prisma.user.update({
-      where: { id: user.id },
-      data: patch,
-      select: { id: true, name: true, phone: true, whatsappLid: true },
-    });
+    try {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: patch,
+        select: identitySelect,
+      });
+    } catch {
+      user = await prisma.user.findFirstOrThrow({
+        where: { id: user.id },
+        select: identitySelect,
+      });
+    }
   }
 
-  return user;
+  return toIdentity(user);
 }
 
 export type GroupRef = { id: string; name: string };
