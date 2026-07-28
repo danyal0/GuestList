@@ -103,7 +103,7 @@ npm run whatsapp:bot   # scan QR on first run
 | `XAI_MODEL` | bot | Defaults to `grok-4-1-fast-non-reasoning-latest` |
 | `WHATSAPP_GROUP_NAME` | bot | Group to monitor (default `Tennis Group`); name fallback for events |
 | `APP_BASE_URL` | bot | Next.js origin for `/api/whatsapp/*` |
-| `DATABASE_URL` | web | Prisma for create-event / rsvp routes |
+| `DATABASE_URL` | api | Optional Postgres; omit for file-backed `/data/mock-db.json` |
 | `WHATSAPP_DEFAULT_GROUP_ID` | web | Preferred community cuid (optional; falls back by name/slug/SPORTS) |
 | `WHATSAPP_DEFAULT_GROUP_SLUG` / `_NAME` | web | Fallbacks when id unset |
 

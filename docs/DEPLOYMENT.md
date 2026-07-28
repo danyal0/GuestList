@@ -2,7 +2,7 @@
 
 MKE Plays deploys as **one Railway app service** (+ optional Postgres later).
 
-By default the API uses **file-backed mock data** from `apps/api/data/mock-db.json` — no database required. When you are ready, set `DATA_SOURCE=postgres` and `DATABASE_URL`.
+By default the API uses **file-backed mock data** — no database required. On Railway the writable copy lives on the `/data` volume (`MOCK_DB_PATH=/data/mock-db.json`) so signups and WhatsApp LID links survive redeploys. When you are ready, set `DATA_SOURCE=postgres` and `DATABASE_URL`.
 
 The app service boots Nest (internal `:4000`), Next.js (internal `:3000`), and a reverse proxy on Railway’s public `$PORT`:
 
@@ -97,8 +97,9 @@ The bot can run **inside the same Railway service** as a sibling process.
 | `WHATSAPP_DEFAULT_GROUP_ID` | optional cuid; if unset we fall back to name/slug/SPORTS group |
 | `WHATSAPP_DEFAULT_GROUP_SLUG` | optional, e.g. `mke-tennis-group` |
 | `WHATSAPP_DEFAULT_GROUP_NAME` | optional name contains match (defaults toward `Tennis`) |
-| `DATABASE_URL` | Postgres URL (required for `/api/whatsapp/*` writes) |
-| `DATA_SOURCE` | `postgres` |
+| `DATABASE_URL` | optional Postgres URL; omit to stay on file mode |
+| `DATA_SOURCE` | `file` (default) or `postgres` |
+| `MOCK_DB_PATH` | writable file DB (default `/data/mock-db.json` on Railway) |
 | `PUPPETEER_EXECUTABLE_PATH` | `/usr/bin/chromium` (default in railpack) |
 
 3. Railway → service → **Volumes** (important): mount a volume at `/data` so WhatsApp login survives redeploys. Auth files go to `/data/wwebjs_auth`.

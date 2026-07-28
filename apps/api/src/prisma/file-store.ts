@@ -75,11 +75,29 @@ const COMPOUND_UNIQUES: Record<string, string[]> = {
 };
 
 function defaultSeedPath(): string {
-  return join(process.cwd(), 'data', 'mock-db.json');
+  const candidates = [
+    process.env.MOCK_DB_SEED_PATH,
+    join(process.cwd(), 'data', 'mock-db.json'),
+    join(process.cwd(), 'apps', 'api', 'data', 'mock-db.json'),
+    join(__dirname, '..', '..', 'data', 'mock-db.json'),
+  ].filter(Boolean) as string[];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return candidates[0]!;
 }
 
+/**
+ * Writable mock DB path.
+ * Prefer the Railway volume at /data so signups + WhatsApp links survive redeploys.
+ */
 function writablePath(): string {
-  return process.env.MOCK_DB_PATH || join('/tmp', 'mkeplays-mock-db.json');
+  if (process.env.MOCK_DB_PATH) return process.env.MOCK_DB_PATH;
+  if (existsSync('/data') || process.env.RAILWAY_ENVIRONMENT) {
+    return join('/data', 'mock-db.json');
+  }
+  return join('/tmp', 'mkeplays-mock-db.json');
 }
 
 export class FileStore {
@@ -100,7 +118,73 @@ export class FileStore {
     }
 
     this.db = JSON.parse(readFileSync(this.path, 'utf8')) as MockDatabase;
+    this.ensureWhatsappExtras();
     this.rebaseEventDates();
+  }
+
+  /**
+   * Patch older persisted mock DBs (on /data) so WhatsApp file-mode works
+   * without wiping user signups.
+   */
+  private ensureWhatsappExtras(): void {
+    let changed = false;
+    for (const user of this.db.users) {
+      if (!('whatsappLid' in user)) {
+        user.whatsappLid = null;
+        changed = true;
+      }
+      if (!('phone' in user)) {
+        user.phone = null;
+        changed = true;
+      }
+      if (!('deletedAt' in user)) {
+        user.deletedAt = null;
+        changed = true;
+      }
+    }
+
+    const hasTennis = this.db.groups.some(
+      (g) => typeof g.name === 'string' && /tennis/i.test(g.name),
+    );
+    if (!hasTennis) {
+      const owner =
+        this.db.users.find((u) => u.email === 'diego@example.com') ||
+        this.db.users[0];
+      if (owner?.id) {
+        const now = new Date().toISOString();
+        this.db.groups.unshift({
+          id: 'group_mke_tennis',
+          slug: 'mke-tennis-group',
+          name: 'MKE Tennis Group',
+          description:
+            'Pickup tennis matches — courts, times, and RSVPs synced from WhatsApp.',
+          category: 'SPORTS',
+          privacy: 'PUBLIC',
+          location: 'Milwaukee, WI',
+          latitude: 43.0389,
+          longitude: -87.9065,
+          ownerId: owner.id,
+          rules: 'RSVP honestly. Be kind on and off the court.',
+          isVerified: false,
+          memberCount: 1,
+          coverImage: null,
+          deletedAt: null,
+          createdAt: now,
+          updatedAt: now,
+        });
+        this.db.groupMembers.push({
+          id: `gm_tennis_${String(owner.id).slice(-6)}`,
+          groupId: 'group_mke_tennis',
+          userId: owner.id,
+          role: 'OWNER',
+          status: 'ACTIVE',
+          joinedAt: now,
+        });
+        changed = true;
+      }
+    }
+
+    if (changed) this.persist();
   }
 
   private rebaseEventDates(): void {
