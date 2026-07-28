@@ -55,6 +55,18 @@ describe('isNamedPlaceholder', () => {
     ).toBe(true);
   });
 
+  it('still recognizes placeholders when email was omitted from a partial select', () => {
+    // Regression: claim used identitySelect without email and always failed.
+    expect(
+      isNamedPlaceholder({
+        email: undefined,
+        phone: null,
+        whatsappLid: null,
+        passwordHash: null,
+      }),
+    ).toBe(true);
+  });
+
   it('rejects real accounts and LID-only WhatsApp users', () => {
     expect(
       isNamedPlaceholder({

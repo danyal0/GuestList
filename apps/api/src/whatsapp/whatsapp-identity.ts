@@ -10,6 +10,8 @@ export type WhatsappUserIdentity = {
 
 type UserRow = WhatsappUserIdentity & {
   passwordHash?: string | null;
+  email?: string | null;
+  deletedAt?: Date | null;
 };
 
 function isPlausiblePhone(digits: string): boolean {
@@ -22,6 +24,8 @@ const identitySelect = {
   phone: true,
   whatsappLid: true,
   passwordHash: true,
+  email: true,
+  deletedAt: true,
 } as const;
 
 function toIdentity(user: UserRow): WhatsappUserIdentity {
@@ -312,9 +316,14 @@ export function isNamedPlaceholder(user: {
   // LID-only WhatsApp users are real bridge identities — not name placeholders.
   if (user.whatsappLid) return false;
   const email = (user.email ?? '').toLowerCase();
-  return (
-    email.endsWith(NAMED_PLACEHOLDER_EMAIL_DOMAIN) && email.startsWith('named-')
-  );
+  // Canonical named-*@wa.mkeplays.app placeholders.
+  if (email.endsWith(NAMED_PLACEHOLDER_EMAIL_DOMAIN) && email.startsWith('named-')) {
+    return true;
+  }
+  // Legacy / partial rows: passwordless shell with no contact identifiers.
+  // Still claimable when email is missing but the account was only used for RSVPs.
+  if (!email) return true;
+  return email.startsWith('named-') || email.endsWith(NAMED_PLACEHOLDER_EMAIL_DOMAIN);
 }
 
 export type NamedProfileClue = {
@@ -513,8 +522,13 @@ export async function claimNamedPlaceholder(
   ]);
 
   if (!survivor) throw new Error('Account not found');
-  if (!placeholder || !isNamedPlaceholder(placeholder)) {
+  if (!placeholder) {
     throw new Error('No matching unclaimed profile found');
+  }
+  if (!isNamedPlaceholder(placeholder)) {
+    throw new Error(
+      'That profile is already linked to a phone, WhatsApp, or password account',
+    );
   }
   if (!survivor.passwordHash) {
     throw new Error('Sign up fully before linking a prior profile');
