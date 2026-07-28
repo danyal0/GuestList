@@ -22,11 +22,11 @@ User ──< GroupMember >── Group ──< Event ──< Rsvp >── User
 
 | Table | Highlights |
 | --- | --- |
-| `users` | argon2 `passwordHash` (nullable for OAuth-only), `role` (`USER`/`MODERATOR`/`ADMIN`), `interests[]`, `skills[]`, coordinates, soft delete (`deletedAt`), suspension (`suspendedAt`) |
+| `users` | argon2 `passwordHash` (nullable for OAuth-only), `role` (`USER`/`MODERATOR`/`ADMIN`), optional unique `phone` (WhatsApp bridge), `interests[]`, `skills[]`, coordinates, soft delete (`deletedAt`), suspension (`suspendedAt`) |
 | `refresh_tokens` | SHA-256 `tokenHash` (unique), rotation `family`, `revokedAt`, `replacedById`, device metadata — powers reuse detection |
 | `groups` | unique `slug`, `category` enum, `privacy` (`PUBLIC`/`PRIVATE`/`HIDDEN`), denormalized `memberCount`, coordinates, soft delete |
 | `group_members` | unique `(groupId, userId)`, `role` (Owner/Admin/Moderator/Member), `status` (`ACTIVE`/`PENDING`/`BANNED`), `joinedAt` |
-| `events` | `mode` (in-person/online/hybrid), `status` lifecycle (`DRAFT`→`PUBLISHED`→`COMPLETED`/`CANCELLED`), `capacity`, `allowWaitlist`, `rsvpDeadline`, `recurrenceRule` (RRULE) + `parentEventId` for occurrences, timezone |
+| `events` | `mode` (in-person/online/hybrid), `status` lifecycle (`DRAFT`→`PUBLISHED`→`COMPLETED`/`CANCELLED`), `capacity`, `allowWaitlist`, `rsvpDeadline`, `recurrenceRule` (RRULE) + `parentEventId` for occurrences, timezone, optional unique `whatsappMessageId` (WhatsApp bridge) |
 | `rsvps` | unique `(eventId, userId)`, `status` (`GOING`/`INTERESTED`/`WAITLISTED`/`DECLINED`) |
 | `conversations` / `messages` | direct + group chats, soft-deleted messages, `lastReadAt` per participant |
 | `notifications` | `type` enum + JSONB `payload`, `read` flag |

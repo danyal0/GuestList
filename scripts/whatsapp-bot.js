@@ -1,0 +1,524 @@
+/**
+ * WhatsApp ↔ Gatherly bridge
+ *
+ * Long-running Node process (not a Next.js serverless function).
+ * Uses whatsapp-web.js + LocalAuth, classifies chat with xAI/Grok,
+ * then POSTs to Next.js App Router endpoints.
+ *
+ * Run:  npm run whatsapp:bot
+ * First boot prints a QR code — scan it with WhatsApp → Linked Devices.
+ */
+
+'use strict';
+
+require('dotenv').config();
+
+const { Client, LocalAuth } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
+
+// ─────────────────────────── Config ───────────────────────────
+
+const WHATSAPP_GROUP_NAME = process.env.WHATSAPP_GROUP_NAME || 'Tennis Group';
+const WHATSAPP_BOT_TOKEN = process.env.WHATSAPP_BOT_TOKEN;
+const XAI_API_KEY = process.env.XAI_API_KEY;
+const XAI_API_URL =
+  process.env.XAI_API_URL || 'https://api.x.ai/v1/chat/completions';
+const XAI_MODEL =
+  process.env.XAI_MODEL || 'grok-4-1-fast-non-reasoning-latest';
+const APP_BASE_URL =
+  process.env.APP_BASE_URL ||
+  process.env.NEXT_APP_URL ||
+  'http://localhost:3000';
+const MIN_CONFIDENCE = Number(process.env.WHATSAPP_MIN_CONFIDENCE || '0.6');
+
+/** Reactions that short-circuit to RSVP_YES without calling Grok. */
+const POSITIVE_REACTION_IDS = new Set([
+  '👍',
+  '👍🏻',
+  '👍🏼',
+  '👍🏽',
+  '👍🏾',
+  '👍🏿',
+  '🎾',
+  '✅',
+  '🙌',
+  '💪',
+]);
+
+const NEGATIVE_REACTION_IDS = new Set(['👎', '👎🏻', '👎🏼', '👎🏽', '👎🏾', '👎🏿', '❌', '🚫']);
+
+if (!WHATSAPP_BOT_TOKEN) {
+  console.error('[whatsapp-bot] Missing WHATSAPP_BOT_TOKEN in environment.');
+  process.exit(1);
+}
+if (!XAI_API_KEY) {
+  console.error('[whatsapp-bot] Missing XAI_API_KEY in environment.');
+  process.exit(1);
+}
+
+// ─────────────────────────── Types (JSDoc) ───────────────────────────
+
+/**
+ * @typedef {'CREATE_EVENT' | 'RSVP_YES' | 'RSVP_NO' | 'IGNORE'} Intent
+ * @typedef {{
+ *   intent: Intent,
+ *   confidence: number,
+ *   extractedData: {
+ *     title: string | null,
+ *     suggestedTime: string | null,
+ *     venue: string | null,
+ *   }
+ * }} AnalysisResult
+ * @typedef {{
+ *   kind: 'message' | 'reaction',
+ *   text: string | null,
+ *   reaction: string | null,
+ *   senderPhone: string,
+ *   whatsappMessageId: string,
+ *   targetMessageId: string | null,
+ * }} AnalyzePayload
+ */
+
+const SYSTEM_PROMPT = `You are a strict text classification and data extraction tool for a tennis match organizing app.
+Parse casual WhatsApp group chat messages and reactions about tennis matches.
+
+Identify exactly one intent:
+- CREATE_EVENT: the sender is proposing / scheduling a new match or hitting session
+- RSVP_YES: the sender is confirming they will attend an existing match
+- RSVP_NO: the sender is cancelling or declining an RSVP
+- IGNORE: normal banter, unrelated chat, or insufficient signal
+
+Rules:
+- Be conservative: prefer IGNORE when unsure.
+- Extract title, suggestedTime, and venue only when clearly implied.
+- suggestedTime may be an ISO-8601 string OR a plain-text clue (e.g. "Saturday 10am").
+- Return ONLY a single minified JSON object. No markdown. No commentary.
+- Schema:
+{"intent":"CREATE_EVENT"|"RSVP_YES"|"RSVP_NO"|"IGNORE","confidence":0.0,"extractedData":{"title":null,"suggestedTime":null,"venue":null}}`;
+
+// ─────────────────────────── xAI / Grok ───────────────────────────
+
+/**
+ * Call xAI Grok and parse a strict AnalysisResult.
+ * @param {AnalyzePayload} payload
+ * @returns {Promise<AnalysisResult>}
+ */
+async function analyzeWithxAI(payload) {
+  const userContent = JSON.stringify({
+    kind: payload.kind,
+    text: payload.text,
+    reaction: payload.reaction,
+    hint:
+      payload.kind === 'reaction'
+        ? 'This is a WhatsApp reaction on a prior message that may be a match invitation.'
+        : 'This is a WhatsApp group message.',
+  });
+
+  let response;
+  try {
+    response = await fetch(XAI_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${XAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: XAI_MODEL,
+        temperature: 0,
+        // Prefer structured JSON when the model/API supports it.
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: userContent },
+        ],
+      }),
+    });
+  } catch (err) {
+    console.error('[whatsapp-bot] xAI network error:', err);
+    return ignoreResult(0);
+  }
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    console.error(
+      `[whatsapp-bot] xAI HTTP ${response.status}: ${body.slice(0, 500)}`,
+    );
+    return ignoreResult(0);
+  }
+
+  let rawContent = '';
+  try {
+    const data = await response.json();
+    rawContent =
+      data?.choices?.[0]?.message?.content ??
+      data?.choices?.[0]?.text ??
+      '';
+  } catch (err) {
+    console.error('[whatsapp-bot] Failed to parse xAI response envelope:', err);
+    return ignoreResult(0);
+  }
+
+  return parseAnalysisJson(rawContent);
+}
+
+/**
+ * @param {string} raw
+ * @returns {AnalysisResult}
+ */
+function parseAnalysisJson(raw) {
+  if (!raw || typeof raw !== 'string') {
+    return ignoreResult(0);
+  }
+
+  // Strip accidental markdown fences if the model ignores instructions.
+  const cleaned = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
+  try {
+    const parsed = JSON.parse(cleaned);
+    const intent = normalizeIntent(parsed?.intent);
+    const confidence = clampConfidence(parsed?.confidence);
+    const extracted = parsed?.extractedData ?? {};
+
+    return {
+      intent,
+      confidence,
+      extractedData: {
+        title: nullableString(extracted.title),
+        suggestedTime: nullableString(extracted.suggestedTime),
+        venue: nullableString(extracted.venue),
+      },
+    };
+  } catch (err) {
+    console.error(
+      '[whatsapp-bot] Failed to parse xAI JSON payload:',
+      err,
+      'raw=',
+      cleaned.slice(0, 300),
+    );
+    return ignoreResult(0);
+  }
+}
+
+/** @param {unknown} value @returns {Intent} */
+function normalizeIntent(value) {
+  const allowed = new Set(['CREATE_EVENT', 'RSVP_YES', 'RSVP_NO', 'IGNORE']);
+  return allowed.has(value) ? /** @type {Intent} */ (value) : 'IGNORE';
+}
+
+/** @param {unknown} value @returns {number} */
+function clampConfidence(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(1, Math.max(0, n));
+}
+
+/** @param {unknown} value @returns {string | null} */
+function nullableString(value) {
+  if (value == null) return null;
+  const s = String(value).trim();
+  return s.length ? s : null;
+}
+
+/** @param {number} confidence @returns {AnalysisResult} */
+function ignoreResult(confidence) {
+  return {
+    intent: 'IGNORE',
+    confidence,
+    extractedData: { title: null, suggestedTime: null, venue: null },
+  };
+}
+
+// ─────────────────────────── Backend HTTP ───────────────────────────
+
+/**
+ * @param {string} path
+ * @param {Record<string, unknown>} body
+ */
+async function postToApp(path, body) {
+  const url = `${APP_BASE_URL.replace(/\/$/, '')}${path}`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-whatsapp-bot-token': WHATSAPP_BOT_TOKEN,
+      },
+      body: JSON.stringify(body),
+    });
+
+    const text = await res.text();
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = { raw: text };
+    }
+
+    if (!res.ok) {
+      console.error(
+        `[whatsapp-bot] POST ${path} → ${res.status}`,
+        json ?? text.slice(0, 400),
+      );
+      return null;
+    }
+
+    console.log(`[whatsapp-bot] POST ${path} → ${res.status}`, json);
+    return json;
+  } catch (err) {
+    console.error(`[whatsapp-bot] POST ${path} failed:`, err);
+    return null;
+  }
+}
+
+/**
+ * Route an analysis result to the correct Next.js API.
+ * @param {AnalyzePayload} payload
+ * @param {AnalysisResult} analysis
+ */
+async function dispatchIntent(payload, analysis) {
+  if (analysis.intent === 'IGNORE' || analysis.confidence < MIN_CONFIDENCE) {
+    console.log(
+      `[whatsapp-bot] Ignoring (intent=${analysis.intent}, confidence=${analysis.confidence})`,
+    );
+    return;
+  }
+
+  if (analysis.intent === 'CREATE_EVENT') {
+    await postToApp('/api/whatsapp/create-event', {
+      senderPhone: payload.senderPhone,
+      messageBody: payload.text ?? '',
+      whatsappMessageId: payload.whatsappMessageId,
+      title: analysis.extractedData.title,
+      suggestedTime: analysis.extractedData.suggestedTime,
+      venue: analysis.extractedData.venue,
+      confidence: analysis.confidence,
+    });
+    return;
+  }
+
+  if (analysis.intent === 'RSVP_YES' || analysis.intent === 'RSVP_NO') {
+    const targetId =
+      payload.targetMessageId || payload.whatsappMessageId;
+    await postToApp('/api/whatsapp/rsvp', {
+      whatsappMessageId: targetId,
+      reactorPhone: payload.senderPhone,
+      status: analysis.intent === 'RSVP_YES' ? 'attending' : 'cancelled',
+      confidence: analysis.confidence,
+    });
+  }
+}
+
+// ─────────────────────────── WhatsApp helpers ───────────────────────────
+
+/** @param {import('whatsapp-web.js').Contact | import('whatsapp-web.js').Message} source */
+function extractPhone(source) {
+  // Prefer Contact.number when available; fall back to WhatsApp JID local-part.
+  const number =
+    /** @type {{ number?: string }} */ (source)?.number ||
+    String(
+      /** @type {{ from?: string, author?: string, id?: { user?: string } }} */ (
+        source
+      ).author ||
+        /** @type {{ from?: string }} */ (source).from ||
+        '',
+    )
+      .split('@')[0]
+      .replace(/:\d+$/, '');
+
+  return String(number || '').replace(/\D/g, '');
+}
+
+/**
+ * Resolve whether a chat is the configured tennis group.
+ * @param {import('whatsapp-web.js').Chat} chat
+ */
+function isTargetGroup(chat) {
+  if (!chat?.isGroup) return false;
+  const name = (chat.name || '').trim().toLowerCase();
+  return name === WHATSAPP_GROUP_NAME.trim().toLowerCase();
+}
+
+/**
+ * @param {string | null | undefined} emoji
+ * @returns {Intent | null}
+ */
+function intentFromReactionEmoji(emoji) {
+  if (!emoji) return null;
+  if (POSITIVE_REACTION_IDS.has(emoji)) return 'RSVP_YES';
+  if (NEGATIVE_REACTION_IDS.has(emoji)) return 'RSVP_NO';
+  return null;
+}
+
+// ─────────────────────────── Client bootstrap ───────────────────────────
+
+const client = new Client({
+  authStrategy: new LocalAuth({
+    clientId: process.env.WHATSAPP_CLIENT_ID || 'gatherly-tennis-bot',
+    dataPath: process.env.WHATSAPP_AUTH_PATH || './.wwebjs_auth',
+  }),
+  puppeteer: {
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+  },
+});
+
+client.on('qr', (qr) => {
+  console.log('\n[whatsapp-bot] Scan this QR with WhatsApp → Linked Devices:\n');
+  qrcode.generate(qr, { small: true });
+});
+
+client.on('authenticated', () => {
+  console.log('[whatsapp-bot] Authenticated (LocalAuth session saved).');
+});
+
+client.on('auth_failure', (msg) => {
+  console.error('[whatsapp-bot] Auth failure:', msg);
+});
+
+client.on('ready', () => {
+  console.log(
+    `[whatsapp-bot] Ready. Listening for messages in group "${WHATSAPP_GROUP_NAME}".`,
+  );
+});
+
+client.on('disconnected', (reason) => {
+  console.warn('[whatsapp-bot] Disconnected:', reason);
+});
+
+client.on('message', async (message) => {
+  try {
+    // Ignore status broadcasts and own echo unless explicitly enabled.
+    if (message.from === 'status@broadcast') return;
+    if (message.fromMe && process.env.WHATSAPP_PROCESS_SELF !== 'true') return;
+
+    const chat = await message.getChat();
+    if (!isTargetGroup(chat)) return;
+
+    const contact = await message.getContact();
+    const senderPhone = extractPhone(contact) || extractPhone(message);
+    if (!senderPhone) {
+      console.warn('[whatsapp-bot] Skipping message with unknown sender phone.');
+      return;
+    }
+
+    /** @type {AnalyzePayload} */
+    const payload = {
+      kind: 'message',
+      text: message.body || null,
+      reaction: null,
+      senderPhone,
+      whatsappMessageId: message.id._serialized,
+      targetMessageId: null,
+    };
+
+    console.log(
+      `[whatsapp-bot] Message from ${senderPhone}: ${(payload.text || '').slice(0, 120)}`,
+    );
+
+    const analysis = await analyzeWithxAI(payload);
+    await dispatchIntent(payload, analysis);
+  } catch (err) {
+    console.error('[whatsapp-bot] message handler error:', err);
+  }
+});
+
+client.on('message_reaction', async (reaction) => {
+  try {
+    const emoji = reaction.reaction || reaction.emoji || null;
+    // Empty reaction string usually means the reaction was removed.
+    if (!emoji) {
+      console.log('[whatsapp-bot] Reaction removed; ignoring.');
+      return;
+    }
+
+    const msgId = reaction.msgId;
+    // msgId may be a MessageId object or serialized string depending on version.
+    const targetMessageId =
+      typeof msgId === 'string'
+        ? msgId
+        : msgId?._serialized ||
+          (msgId?.remote && msgId?.id
+            ? `${msgId.fromMe ? 'true' : 'false'}_${msgId.remote}_${msgId.id}`
+            : null);
+
+    if (!targetMessageId) {
+      console.warn('[whatsapp-bot] Reaction without resolvable target message id.');
+      return;
+    }
+
+    // Best-effort: load the parent message to confirm group + get chat.
+    let chat = null;
+    try {
+      const parent = await client.getMessageById(targetMessageId);
+      if (parent) chat = await parent.getChat();
+    } catch {
+      // Fall through — some wwebjs versions struggle with getMessageById.
+    }
+
+    if (chat && !isTargetGroup(chat)) return;
+    // If we could not resolve the chat, still process when group filtering is soft.
+    if (!chat && process.env.WHATSAPP_REQUIRE_GROUP_ON_REACTION === 'true') {
+      console.warn('[whatsapp-bot] Skipping reaction; group chat unresolved.');
+      return;
+    }
+
+    const reactorId = reaction.senderId || reaction.id || '';
+    const reactorPhone = String(reactorId)
+      .split('@')[0]
+      .replace(/:\d+$/, '')
+      .replace(/\D/g, '');
+
+    if (!reactorPhone) {
+      console.warn('[whatsapp-bot] Skipping reaction with unknown reactor phone.');
+      return;
+    }
+
+    /** @type {AnalyzePayload} */
+    const payload = {
+      kind: 'reaction',
+      text: null,
+      reaction: emoji,
+      senderPhone: reactorPhone,
+      whatsappMessageId: targetMessageId,
+      targetMessageId,
+    };
+
+    // Thumbs-up / tennis-ball (and similar) short-circuit to RSVP without Grok.
+    const shortcut = intentFromReactionEmoji(emoji);
+    if (shortcut) {
+      console.log(
+        `[whatsapp-bot] Reaction shortcut ${emoji} → ${shortcut} from ${reactorPhone}`,
+      );
+      await dispatchIntent(payload, {
+        intent: shortcut,
+        confidence: 1,
+        extractedData: { title: null, suggestedTime: null, venue: null },
+      });
+      return;
+    }
+
+    const analysis = await analyzeWithxAI(payload);
+    await dispatchIntent(payload, analysis);
+  } catch (err) {
+    console.error('[whatsapp-bot] message_reaction handler error:', err);
+  }
+});
+
+client.initialize().catch((err) => {
+  console.error('[whatsapp-bot] Failed to initialize client:', err);
+  process.exit(1);
+});
+
+process.on('SIGINT', async () => {
+  console.log('\n[whatsapp-bot] Shutting down…');
+  try {
+    await client.destroy();
+  } catch {
+    // ignore
+  }
+  process.exit(0);
+});

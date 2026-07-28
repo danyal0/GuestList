@@ -13,7 +13,9 @@ const nextConfig: NextConfig = {
     remotePatterns: [{ protocol: 'https', hostname: '**' }, { protocol: 'http', hostname: 'localhost' }],
   },
   async rewrites() {
-    // First-party proxy to the API: cookies stay same-origin, no CORS in prod.
+    // Flat rewrite arrays are treated as `afterFiles`: Next.js filesystem
+    // routes (including App Router handlers under /api/whatsapp/*) are matched
+    // first, then remaining /api/* traffic is proxied to Nest.
     return [
       { source: '/api/:path*', destination: `${API_URL}/api/:path*` },
       { source: '/uploads/:path*', destination: `${API_URL}/uploads/:path*` },
