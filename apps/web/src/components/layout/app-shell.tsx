@@ -76,9 +76,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Top navigation — glass */}
       <header className="glass-subtle sticky top-0 z-40">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4">
-          <Link href="/" className="flex items-center gap-2.5" aria-label="MKE Plays home">
-            <BrandLogo size="md" priority className="h-8 w-8 shadow-sm" />
-            <span className="text-[19px] font-extrabold tracking-tight">MKE Plays</span>
+          <Link
+            href="/"
+            className="flex h-16 shrink-0 items-center"
+            aria-label="MKE Plays home"
+          >
+            <BrandLogo size="header" priority className="h-16 w-auto" />
           </Link>
 
           <nav aria-label="Primary" className="ml-6 hidden items-center gap-1 md:flex">

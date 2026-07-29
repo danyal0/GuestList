@@ -76,7 +76,7 @@ export class MailService {
     return `<!doctype html><html><body style="margin:0;padding:32px;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
       <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:20px;padding:40px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
         <div style="text-align:center;margin:0 0 20px">
-          <img src="${logoUrl}" alt="MKE Plays" width="64" height="64" style="border-radius:14px;display:inline-block" />
+          <img src="${logoUrl}" alt="MKE Plays" height="64" style="height:64px;width:auto;display:inline-block" />
         </div>
         <p style="font-size:14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#0a84ff;margin:0 0 16px;text-align:center">MKE Plays</p>
         <h1 style="font-size:24px;font-weight:700;color:#1d1d1f;margin:0 0 12px">${o.heading}</h1>

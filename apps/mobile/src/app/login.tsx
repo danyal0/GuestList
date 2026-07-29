@@ -53,8 +53,8 @@ export default function LoginScreen() {
         <View style={{ alignItems: 'center', gap: spacing.md }}>
           <Image
             source={require('../../assets/images/icon.png')}
-            style={{ width: 72, height: 72, borderRadius: 16 }}
-            contentFit="cover"
+            style={{ width: 72, height: 72, borderRadius: 12 }}
+            contentFit="contain"
             accessibilityLabel="MKE Plays"
           />
         </View>

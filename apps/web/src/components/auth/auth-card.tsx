@@ -17,7 +17,7 @@ export function AuthCard({ title, subtitle, children }: {
         className="glass rounded-[var(--radius-xl)] p-8"
       >
         <div className="mb-5 flex justify-center">
-          <BrandLogo size="xl" priority className="h-[72px] w-[72px] rounded-2xl shadow-sm" />
+          <BrandLogo size="xl" priority className="h-[72px] w-auto" />
         </div>
         <h1 className="text-center text-[26px] font-extrabold tracking-tight">{title}</h1>
         {subtitle && (

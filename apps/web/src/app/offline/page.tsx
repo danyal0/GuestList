@@ -6,7 +6,7 @@ export const metadata = { title: 'Offline' };
 export default function OfflinePage() {
   return (
     <div className="flex min-h-[60dvh] flex-col items-center justify-center text-center">
-      <BrandLogo size="xl" className="mb-4 h-16 w-16 rounded-2xl opacity-90" />
+      <BrandLogo size="xl" className="mb-4 h-16 w-auto opacity-90" />
       <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-surface-3)]">
         <WifiOff className="h-6 w-6 text-[var(--color-ink-tertiary)]" aria-hidden />
       </div>
