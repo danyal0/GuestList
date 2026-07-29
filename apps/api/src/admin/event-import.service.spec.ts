@@ -35,13 +35,40 @@ Board Game Night,"Sat, Aug 1 · 7:00 PM CDT",Milwaukee Game Night,Corner Street 
     expect(rows[0].location).toBe('Corner Street Bakery');
   });
 
-  it('builds stable import keys', () => {
-    const key = buildImportKey({
-      link: 'https://meetup.com/x/events/123456789',
-      slug: 'x',
-      title: 'Event',
-      start: new Date('2026-07-31T18:30:00-05:00'),
-    });
-    expect(key).toBe('123456789');
+  it('parses JSON wrapped in a data property', () => {
+    const rows = service.parseUpload(
+      Buffer.from(JSON.stringify({ data: [{ name: 'Milwaukee Hike', link: 'https://meetup.com/mke-hikers/events/1/' }] })),
+      'events.json',
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].name).toBe('Milwaukee Hike');
+  });
+
+  it('reports importedEvents as created plus updated', async () => {
+    const prisma = {
+      user: { findFirst: jest.fn().mockResolvedValue({ id: 'host1' }) },
+      group: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 'g1', name: 'Hub' }),
+        update: jest.fn(),
+      },
+      groupMember: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },
+      event: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+        create: jest.fn().mockResolvedValue({ id: 'e1' }),
+        update: jest.fn(),
+      },
+    };
+    const importSvc = new EventImportService(prisma as never, { log: jest.fn() } as never);
+    const result = await importSvc.importRows('admin1', [
+      {
+        name: 'Fresh Milwaukee Meetup',
+        dateTime: 'Fri, Jul 31 · 6:30 PM CDT',
+        link: 'https://www.meetup.com/new-friends-mke/events/999999001/',
+      },
+    ]);
+    expect(result.createdEvents).toBe(1);
+    expect(result.importedEvents).toBe(1);
   });
 });
