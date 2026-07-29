@@ -879,10 +879,20 @@ async function postToApp(path, body) {
     }
 
     if (!res.ok) {
-      console.error(
-        `[whatsapp-bot] POST ${path} → ${res.status}`,
-        json ?? text.slice(0, 400),
-      );
+      const code = json && typeof json === 'object' ? json.code || json.error : null;
+      const message =
+        json && typeof json === 'object' ? json.message || json.error : null;
+      if (res.status === 422) {
+        console.warn(
+          `[whatsapp-bot] CREATE_EVENT rejected (${code ?? 'validation'}): ${message ?? text.slice(0, 200)}`,
+          Array.isArray(json?.hints) ? `hints=${JSON.stringify(json.hints)}` : '',
+        );
+      } else {
+        console.error(
+          `[whatsapp-bot] POST ${path} → ${res.status}`,
+          json ?? text.slice(0, 400),
+        );
+      }
       return null;
     }
 

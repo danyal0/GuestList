@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
   ServiceUnavailableException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { NotificationType, RsvpStatus } from '@prisma/client';
@@ -25,6 +26,7 @@ import {
   scoreEventAgainstQuote,
   scoreRescheduleCandidate,
   whatsappIdFromMeVariants,
+  type CatalogVenue,
   type RescheduleCandidate,
 } from './whatsapp-event-enrich';
 import {
@@ -32,6 +34,12 @@ import {
   findOrLinkWhatsappUser,
   resolveWhatsappDefaultGroup,
 } from './whatsapp-identity';
+import {
+  hasExplicitTimeCue,
+  validateWhatsappEventProposal,
+  type WhatsappCreateValidationResult,
+} from './whatsapp-event-validate';
+import { askAiEventSenseCheck } from './whatsapp-sense-check';
 
 @Injectable()
 export class WhatsappService {
@@ -75,6 +83,7 @@ export class WhatsappService {
     namedAttendees?: string[] | null;
     timezone?: string | null;
     confidence?: number;
+    timeConfidence?: number | null;
     /** 0–1 from AI: host is changing an existing plan. */
     rescheduleConfidence?: number | null;
     isReschedule?: boolean | null;
@@ -414,9 +423,87 @@ export class WhatsappService {
     if (rescheduleConfidence >= 0.7 || targetWhatsappMessageId) {
       const match = await this.findUpdateTarget(matchOpts);
       if (match) {
-        this.logger.log(
-          `Reschedule match event=${match.id} score=${match.score.toFixed(2)} cue="${rescheduleCue.matchedPhrase ?? (targetWhatsappMessageId ? 'reply' : 'ai')}" → ${startTime.toISOString()}`,
+        const timeWasExplicit = hasExplicitTimeCue(
+          messageBody,
+          body.suggestedTime,
+          body.title,
         );
+        const venueWasExplicit = Boolean(catalog) || hasPlaceCue(messageBody);
+
+        // Only apply fields the host actually changed — don't invent a new
+        // default time when they only moved the venue (and vice versa).
+        const nextStart = timeWasExplicit ? startTime : match.startTime;
+        const nextEnd = timeWasExplicit
+          ? endTime
+          : new Date(
+              match.startTime.getTime() +
+                Math.max(1, durationMinutes) * 60 * 1000,
+            );
+        const nextVenueId = venueWasExplicit ? venueId : match.venueId;
+        const nextLocation = venueWasExplicit
+          ? locationName
+          : match.locationName;
+        const nextAddress = venueWasExplicit ? address : match.address;
+
+        const timeChanged = match.startTime.getTime() !== nextStart.getTime();
+        const venueChanged =
+          (nextVenueId ?? null) !== (match.venueId ?? null) ||
+          (nextLocation || null) !== (match.locationName || null);
+
+        const effectiveCatalog =
+          catalog ??
+          (await this.catalogVenueForId(nextVenueId ?? match.venueId));
+
+        // Description-only reply: keep schedule/venue, just append WhatsApp note.
+        if (!timeChanged && !venueChanged) {
+          this.logger.log(
+            `Reschedule/reply match event=${match.id} with no time/venue change — description update only`,
+          );
+          const updatedDescription = appendWhatsappUpdate(
+            match.description,
+            messageBody,
+            whatsappMessageId,
+            mapsUrls,
+          );
+          const updated = await this.prisma.event.update({
+            where: { id: match.id },
+            data: { description: updatedDescription },
+            select: eventSelect,
+          });
+          return {
+            ok: true,
+            updated: true,
+            rescheduled: false,
+            event: updated,
+            namedAttendees: [],
+            capacity: updated.capacity,
+          };
+        }
+
+        this.logger.log(
+          `Reschedule match event=${match.id} score=${match.score.toFixed(2)} cue="${rescheduleCue.matchedPhrase ?? (targetWhatsappMessageId ? 'reply' : 'ai')}" timeChanged=${timeChanged} venueChanged=${venueChanged} → ${nextStart.toISOString()}`,
+        );
+
+        await this.assertEventProposalValid({
+          mode: 'reschedule',
+          messageBody,
+          title,
+          suggestedTime: body.suggestedTime,
+          venue: body.venue,
+          locationName: nextLocation,
+          address: nextAddress,
+          catalogVenue: effectiveCatalog,
+          freeformLocation: effectiveCatalog ? null : nextLocation,
+          startTime: nextStart,
+          timezone,
+          timeWasExplicit,
+          venueWasExplicit: venueWasExplicit || Boolean(effectiveCatalog),
+          botConfidence: body.confidence,
+          venueConfidence: body.venueConfidence,
+          timeConfidence: body.timeConfidence,
+          changes: { timeChanged, venueChanged },
+        });
+
         const previousStart = match.startTime;
         const updatedDescription = appendWhatsappUpdate(
           match.description,
@@ -429,14 +516,18 @@ export class WhatsappService {
           data: {
             title: title || match.title,
             description: updatedDescription,
-            locationName: locationName ?? match.locationName,
-            address: address ?? match.address,
-            latitude: latitude ?? undefined,
-            longitude: longitude ?? undefined,
-            venueId: venueId ?? match.venueId,
+            ...(venueWasExplicit
+              ? {
+                  locationName: nextLocation,
+                  address: nextAddress,
+                  venueId: nextVenueId,
+                  ...(latitude != null ? { latitude } : {}),
+                  ...(longitude != null ? { longitude } : {}),
+                }
+              : {}),
             timezone,
-            startTime,
-            endTime,
+            startTime: nextStart,
+            endTime: nextEnd,
             previousStartTime: previousStart,
             rescheduledAt: new Date(),
             ...(capacity != null ? { capacity } : {}),
@@ -450,22 +541,15 @@ export class WhatsappService {
           namedAttendees,
         );
 
-        const scheduleChanged =
-          previousStart.getTime() !== updated.startTime.getTime() ||
-          match.locationName !== updated.locationName ||
-          match.address !== updated.address;
-
-        if (scheduleChanged) {
-          await this.notifyEventUpdated(updated, {
-            previousStart,
-            message: buildRescheduleNotifyMessage(updated, previousStart),
-            excludeUserId: host.id,
-          });
-          this.eventEmitter.emit('realtime.event.updated', {
-            eventId: updated.id,
-            event: updated,
-          });
-        }
+        await this.notifyEventUpdated(updated, {
+          previousStart,
+          message: buildRescheduleNotifyMessage(updated, previousStart),
+          excludeUserId: host.id,
+        });
+        this.eventEmitter.emit('realtime.event.updated', {
+          eventId: updated.id,
+          event: updated,
+        });
 
         return {
           ok: true,
@@ -482,6 +566,29 @@ export class WhatsappService {
         );
       }
     }
+
+    await this.assertEventProposalValid({
+      mode: 'create',
+      messageBody,
+      title,
+      suggestedTime: body.suggestedTime,
+      venue: body.venue,
+      locationName,
+      address,
+      catalogVenue: catalog,
+      freeformLocation: catalog ? null : locationName,
+      startTime,
+      timezone,
+      timeWasExplicit: hasExplicitTimeCue(
+        messageBody,
+        body.suggestedTime,
+        body.title,
+      ),
+      venueWasExplicit: Boolean(catalog) || hasPlaceCue(messageBody),
+      botConfidence: body.confidence,
+      venueConfidence: body.venueConfidence,
+      timeConfidence: body.timeConfidence,
+    });
 
     this.logger.log(
       `Creating event "${title}" venue=${catalog?.slug ?? 'n/a'} capacity=${capacity ?? 'unlimited'} attendees=[${namedAttendees.join(',')}] @ ${locationName ?? 'n/a'} ${address ?? ''} ${startTime.toISOString()} (${timezone})`,
@@ -564,6 +671,82 @@ export class WhatsappService {
       }
     }
     return autoRsvped;
+  }
+
+  private throwEventValidation(validation: WhatsappCreateValidationResult): never {
+    if (validation.ok) {
+      throw new Error('throwEventValidation called with ok result');
+    }
+    this.logger.warn(
+      `WhatsApp event rejected code=${validation.code} msg=${validation.message}`,
+    );
+    throw new UnprocessableEntityException({
+      error: 'Event validation failed',
+      code: validation.code,
+      message: validation.message,
+      hints: validation.hints,
+      details: validation.details ?? null,
+    });
+  }
+
+  private async catalogVenueForId(
+    venueId: string | null | undefined,
+  ): Promise<CatalogVenue | null> {
+    if (!venueId) return null;
+    const row = await this.prisma.venue.findFirst({
+      where: { id: venueId },
+      select: { slug: true, name: true },
+    });
+    if (!row) return null;
+    return (
+      resolveCatalogVenue(row.slug)?.venue ??
+      resolveCatalogVenue(row.name)?.venue ??
+      null
+    );
+  }
+
+  /** Structural rules + local sense gate + optional live LLM self-check. */
+  private async assertEventProposalValid(input: {
+    mode: 'create' | 'reschedule';
+    messageBody: string;
+    title: string;
+    suggestedTime?: string | null;
+    venue?: string | null;
+    locationName: string | null;
+    address: string | null;
+    catalogVenue: CatalogVenue | null;
+    freeformLocation: string | null;
+    startTime: Date;
+    timezone: string;
+    timeWasExplicit: boolean;
+    venueWasExplicit: boolean;
+    botConfidence?: number | null;
+    venueConfidence?: number | null;
+    timeConfidence?: number | null;
+    changes?: { timeChanged: boolean; venueChanged: boolean };
+  }): Promise<void> {
+    const ai = await askAiEventSenseCheck({
+      mode: input.mode,
+      messageBody: input.messageBody,
+      title: input.title,
+      venueName: input.catalogVenue?.name ?? input.locationName,
+      venueSlug: input.catalogVenue?.slug ?? null,
+      startTimeIso: input.startTime.toISOString(),
+      timezone: input.timezone,
+      changes: input.changes ?? null,
+    });
+    if (ai) {
+      this.logger.log(
+        `AI sense-check mode=${input.mode} makesSense=${ai.makesSense} confidence=${ai.confidence.toFixed(2)} reason=${ai.reason}`,
+      );
+    }
+
+    const validation = validateWhatsappEventProposal({
+      ...input,
+      aiSenseConfidence: ai ? (ai.makesSense ? ai.confidence : Math.min(ai.confidence, 0.49)) : null,
+      aiSenseReason: ai?.reason ?? null,
+    });
+    if (!validation.ok) this.throwEventValidation(validation);
   }
 
   private async findUpdateTarget(opts: {

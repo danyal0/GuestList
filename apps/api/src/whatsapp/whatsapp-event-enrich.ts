@@ -23,6 +23,10 @@ export type CatalogVenue = {
   courtCount?: number | null;
   /** Suggested event capacity (typically courtCount × 4 for tennis). */
   defaultCapacity?: number | null;
+  /** Local hour (0–23) when courts open; defaults to 7 if omitted. */
+  openHour?: number | null;
+  /** Local hour (1–24) when courts close (start must be before this); defaults to 22. */
+  closeHour?: number | null;
 };
 
 export const MILWAUKEE_TENNIS_VENUES = catalogJson as CatalogVenue[];
