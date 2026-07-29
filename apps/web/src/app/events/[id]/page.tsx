@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { LinkifiedText, googleMapsUrl } from '@/components/ui/linkified-text';
 import { RsvpButtons } from '@/components/events/rsvp-buttons';
+import { ShareEventButton } from '@/components/events/share-event-button';
 import { ErrorState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -289,14 +290,22 @@ export default function EventDetailPage() {
         )}
       </div>
 
-      {/* RSVP + calendar */}
+      {/* RSVP + share + calendar */}
       <div className="space-y-3">
         <RsvpButtons event={e} />
-        <Button asChild variant="outline" className="w-full">
-          <a href={`/api/v1/events/${e.id}/calendar.ics`} download>
-            <CalendarPlus className="h-4 w-4" aria-hidden /> Add to calendar
-          </a>
-        </Button>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ShareEventButton
+            eventId={e.id}
+            title={e.title}
+            groupName={e.group.name}
+            className="w-full"
+          />
+          <Button asChild variant="outline" className="w-full">
+            <a href={`/api/v1/events/${e.id}/calendar.ics`} download>
+              <CalendarPlus className="h-4 w-4" aria-hidden /> Add to calendar
+            </a>
+          </Button>
+        </div>
       </div>
 
       {isHost && !cancelled ? (
