@@ -25,6 +25,10 @@ describe('AdminService', () => {
   let groupMemberUpdate: jest.Mock;
   let groupMemberCreate: jest.Mock;
   let groupMemberUpdateMany: jest.Mock;
+  let groupMemberDeleteMany: jest.Mock;
+  let followDeleteMany: jest.Mock;
+  let conversationDeleteMany: jest.Mock;
+  let paymentUpdateMany: jest.Mock;
   let messageDeleteMany: jest.Mock;
   let paymentDeleteMany: jest.Mock;
   let reportUpdateMany: jest.Mock;
@@ -49,6 +53,10 @@ describe('AdminService', () => {
     groupMemberUpdate = jest.fn().mockResolvedValue({});
     groupMemberCreate = jest.fn().mockResolvedValue({});
     groupMemberUpdateMany = jest.fn().mockResolvedValue({ count: 0 });
+    groupMemberDeleteMany = jest.fn().mockResolvedValue({ count: 0 });
+    followDeleteMany = jest.fn().mockResolvedValue({ count: 0 });
+    conversationDeleteMany = jest.fn().mockResolvedValue({ count: 0 });
+    paymentUpdateMany = jest.fn().mockResolvedValue({ count: 0 });
     messageDeleteMany = jest.fn().mockResolvedValue({ count: 0 });
     paymentDeleteMany = jest.fn().mockResolvedValue({ count: 0 });
     reportUpdateMany = jest.fn().mockResolvedValue({ count: 0 });
@@ -63,13 +71,16 @@ describe('AdminService', () => {
           },
           event: { deleteMany: eventDeleteMany },
           message: { deleteMany: messageDeleteMany },
-          payment: { deleteMany: paymentDeleteMany },
+          payment: { deleteMany: paymentDeleteMany, updateMany: paymentUpdateMany },
           report: { updateMany: reportUpdateMany },
           user: { delete: userDelete },
+          follow: { deleteMany: followDeleteMany },
+          conversation: { deleteMany: conversationDeleteMany },
           groupMember: {
             updateMany: groupMemberUpdateMany,
             update: groupMemberUpdate,
             create: groupMemberCreate,
+            deleteMany: groupMemberDeleteMany,
           },
         });
       }
@@ -98,7 +109,10 @@ describe('AdminService', () => {
         update: groupMemberUpdate,
         create: groupMemberCreate,
         updateMany: groupMemberUpdateMany,
+        deleteMany: groupMemberDeleteMany,
       },
+      follow: { deleteMany: followDeleteMany },
+      conversation: { deleteMany: conversationDeleteMany },
       event: {
         findUnique: eventFindUnique,
         update: eventUpdate,
@@ -107,7 +121,7 @@ describe('AdminService', () => {
         count: jest.fn().mockResolvedValue(0),
       },
       message: { deleteMany: messageDeleteMany, count: jest.fn().mockResolvedValue(0) },
-      payment: { deleteMany: paymentDeleteMany },
+      payment: { deleteMany: paymentDeleteMany, updateMany: paymentUpdateMany },
       report: { count: jest.fn().mockResolvedValue(0), updateMany: reportUpdateMany },
       friendship: { count: jest.fn().mockResolvedValue(0) },
       rsvp: { count: jest.fn().mockResolvedValue(0) },
@@ -247,9 +261,17 @@ describe('AdminService', () => {
   });
 
   describe('hardDeleteGroup', () => {
-    it('permanently deletes a community', async () => {
+    it('permanently deletes a community and dependents', async () => {
       groupFindUnique.mockResolvedValue({ id: 'g1', name: 'Court A', slug: 'court-a' });
       await service.hardDeleteGroup('admin1', 'g1');
+      expect(eventDeleteMany).toHaveBeenCalledWith({ where: { groupId: 'g1' } });
+      expect(groupMemberDeleteMany).toHaveBeenCalledWith({ where: { groupId: 'g1' } });
+      expect(followDeleteMany).toHaveBeenCalledWith({ where: { groupId: 'g1' } });
+      expect(conversationDeleteMany).toHaveBeenCalledWith({ where: { groupId: 'g1' } });
+      expect(paymentUpdateMany).toHaveBeenCalledWith({
+        where: { groupId: 'g1' },
+        data: { groupId: null },
+      });
       expect(groupDelete).toHaveBeenCalledWith({ where: { id: 'g1' } });
       expect(auditLog).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'admin.group_hard_delete', targetId: 'g1' }),
