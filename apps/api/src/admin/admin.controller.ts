@@ -11,7 +11,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import { GroupMemberRole, UserRole } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -52,6 +52,11 @@ class ShadowBanDto {
 class SetRoleDto {
   @IsEnum(UserRole)
   role!: UserRole;
+}
+
+class SetGroupMemberRoleDto {
+  @IsEnum(GroupMemberRole)
+  role!: GroupMemberRole;
 }
 
 class BulkIdsDto {
@@ -115,6 +120,13 @@ export class AdminController {
     return { success: true };
   }
 
+  @Post('users/:id/hard-delete')
+  @HttpCode(HttpStatus.OK)
+  async hardDeleteUser(@CurrentUser() admin: AuthUser, @Param('id') id: string) {
+    await this.adminService.hardDeleteUser(admin.id, id);
+    return { success: true };
+  }
+
   // ───────── Communities ─────────
 
   @Get('groups')
@@ -122,9 +134,32 @@ export class AdminController {
     return this.adminService.listGroups(query.q, query.page, query.limit);
   }
 
+  @Get('groups/:id/members')
+  async groupMembers(@Param('id') id: string) {
+    return this.adminService.listGroupMembers(id);
+  }
+
+  @Patch('groups/:id/members/:userId/role')
+  async setGroupMemberRole(
+    @CurrentUser() admin: AuthUser,
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+    @Body() dto: SetGroupMemberRoleDto,
+  ) {
+    await this.adminService.setGroupMemberRole(admin.id, id, userId, dto.role);
+    return { success: true };
+  }
+
   @Delete('groups/:id')
   async removeGroup(@CurrentUser() admin: AuthUser, @Param('id') id: string) {
     await this.adminService.removeGroup(admin.id, id);
+    return { success: true };
+  }
+
+  @Post('groups/:id/hard-delete')
+  @HttpCode(HttpStatus.OK)
+  async hardDeleteGroup(@CurrentUser() admin: AuthUser, @Param('id') id: string) {
+    await this.adminService.hardDeleteGroup(admin.id, id);
     return { success: true };
   }
 
@@ -142,6 +177,13 @@ export class AdminController {
     return { success: true };
   }
 
+  @Post('events/:id/hard-delete')
+  @HttpCode(HttpStatus.OK)
+  async hardDeleteEvent(@CurrentUser() admin: AuthUser, @Param('id') id: string) {
+    await this.adminService.hardDeleteEvent(admin.id, id);
+    return { success: true };
+  }
+
   // ───────── Bulk ─────────
 
   @Post('bulk/users/delete')
@@ -150,16 +192,34 @@ export class AdminController {
     return this.adminService.bulkSoftDeleteUsers(admin.id, dto.ids);
   }
 
+  @Post('bulk/users/hard-delete')
+  @HttpCode(HttpStatus.OK)
+  async bulkHardDeleteUsers(@CurrentUser() admin: AuthUser, @Body() dto: BulkIdsDto) {
+    return this.adminService.bulkHardDeleteUsers(admin.id, dto.ids);
+  }
+
   @Post('bulk/groups/delete')
   @HttpCode(HttpStatus.OK)
   async bulkDeleteGroups(@CurrentUser() admin: AuthUser, @Body() dto: BulkIdsDto) {
     return this.adminService.bulkRemoveGroups(admin.id, dto.ids);
   }
 
+  @Post('bulk/groups/hard-delete')
+  @HttpCode(HttpStatus.OK)
+  async bulkHardDeleteGroups(@CurrentUser() admin: AuthUser, @Body() dto: BulkIdsDto) {
+    return this.adminService.bulkHardDeleteGroups(admin.id, dto.ids);
+  }
+
   @Post('bulk/events/cancel')
   @HttpCode(HttpStatus.OK)
   async bulkCancelEvents(@CurrentUser() admin: AuthUser, @Body() dto: BulkIdsDto) {
     return this.adminService.bulkCancelEvents(admin.id, dto.ids);
+  }
+
+  @Post('bulk/events/hard-delete')
+  @HttpCode(HttpStatus.OK)
+  async bulkHardDeleteEvents(@CurrentUser() admin: AuthUser, @Body() dto: BulkIdsDto) {
+    return this.adminService.bulkHardDeleteEvents(admin.id, dto.ids);
   }
 
   // ───────── Audit ─────────

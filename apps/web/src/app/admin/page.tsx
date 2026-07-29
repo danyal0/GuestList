@@ -174,6 +174,9 @@ export default function AdminPage() {
   const [selectedUsers, setSelectedUsers] = React.useState<Set<string>>(new Set());
   const [selectedGroups, setSelectedGroups] = React.useState<Set<string>>(new Set());
   const [selectedEvents, setSelectedEvents] = React.useState<Set<string>>(new Set());
+  const [membersGroupId, setMembersGroupId] = React.useState<string | null>(null);
+  const [addMemberUserId, setAddMemberUserId] = React.useState('');
+  const [addMemberRole, setAddMemberRole] = React.useState('MEMBER');
   const [confirm, setConfirm] = React.useState<{
     title: string;
     description: string;
@@ -267,6 +270,26 @@ export default function AdminPage() {
     queryFn: () => api<Paginated<AuditLog>>('/admin/audit-logs?limit=50'),
     enabled,
   });
+  const groupMembers = useQuery({
+    queryKey: ['admin-group-members', membersGroupId],
+    queryFn: () =>
+      api<{
+        group: { id: string; name: string; slug: string; ownerId: string };
+        members: Array<{
+          id: string;
+          role: string;
+          status: string;
+          user: {
+            id: string;
+            name: string;
+            email: string | null;
+            phone: string | null;
+            deletedAt: string | null;
+          };
+        }>;
+      }>(`/admin/groups/${membersGroupId}/members`),
+    enabled: enabled && Boolean(membersGroupId),
+  });
 
   const invalidateAll = () => {
     void queryClient.invalidateQueries({ queryKey: ['admin-users'] });
@@ -276,6 +299,7 @@ export default function AdminPage() {
     void queryClient.invalidateQueries({ queryKey: ['admin-audit'] });
     void queryClient.invalidateQueries({ queryKey: ['admin-detailed-stats'] });
     void queryClient.invalidateQueries({ queryKey: ['admin-overview'] });
+    void queryClient.invalidateQueries({ queryKey: ['admin-group-members'] });
   };
 
   const onError = (error: unknown) =>
@@ -347,6 +371,58 @@ export default function AdminPage() {
     onError,
   });
 
+  const hardDeleteUser = useMutation({
+    mutationFn: (id: string) =>
+      api(`/admin/users/${id}/hard-delete`, { method: 'POST' }),
+    onSuccess: () => {
+      toast.success('User permanently deleted');
+      invalidateAll();
+    },
+    onError,
+  });
+
+  const hardDeleteGroup = useMutation({
+    mutationFn: (id: string) =>
+      api(`/admin/groups/${id}/hard-delete`, { method: 'POST' }),
+    onSuccess: () => {
+      toast.success('Community permanently deleted');
+      setMembersGroupId(null);
+      invalidateAll();
+    },
+    onError,
+  });
+
+  const hardDeleteEvent = useMutation({
+    mutationFn: (id: string) =>
+      api(`/admin/events/${id}/hard-delete`, { method: 'POST' }),
+    onSuccess: () => {
+      toast.success('Event permanently deleted');
+      invalidateAll();
+    },
+    onError,
+  });
+
+  const setGroupMemberRole = useMutation({
+    mutationFn: ({
+      groupId,
+      userId,
+      role,
+    }: {
+      groupId: string;
+      userId: string;
+      role: string;
+    }) =>
+      api(`/admin/groups/${groupId}/members/${userId}/role`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
+      }),
+    onSuccess: () => {
+      toast.success('Community role updated');
+      invalidateAll();
+    },
+    onError,
+  });
+
   const bulkDeleteUsers = useMutation({
     mutationFn: (ids: string[]) =>
       api<{ deleted: number }>('/admin/bulk/users/delete', {
@@ -355,6 +431,20 @@ export default function AdminPage() {
       }),
     onSuccess: (data) => {
       toast.success(`Deleted ${data.deleted} users`);
+      setSelectedUsers(new Set());
+      invalidateAll();
+    },
+    onError,
+  });
+
+  const bulkHardDeleteUsers = useMutation({
+    mutationFn: (ids: string[]) =>
+      api<{ deleted: number }>('/admin/bulk/users/hard-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      }),
+    onSuccess: (data) => {
+      toast.success(`Hard-deleted ${data.deleted} users`);
       setSelectedUsers(new Set());
       invalidateAll();
     },
@@ -375,6 +465,20 @@ export default function AdminPage() {
     onError,
   });
 
+  const bulkHardDeleteGroups = useMutation({
+    mutationFn: (ids: string[]) =>
+      api<{ deleted: number }>('/admin/bulk/groups/hard-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      }),
+    onSuccess: (data) => {
+      toast.success(`Hard-deleted ${data.deleted} communities`);
+      setSelectedGroups(new Set());
+      invalidateAll();
+    },
+    onError,
+  });
+
   const bulkCancelEvents = useMutation({
     mutationFn: (ids: string[]) =>
       api<{ cancelled: number }>('/admin/bulk/events/cancel', {
@@ -383,6 +487,20 @@ export default function AdminPage() {
       }),
     onSuccess: (data) => {
       toast.success(`Cancelled ${data.cancelled} events`);
+      setSelectedEvents(new Set());
+      invalidateAll();
+    },
+    onError,
+  });
+
+  const bulkHardDeleteEvents = useMutation({
+    mutationFn: (ids: string[]) =>
+      api<{ deleted: number }>('/admin/bulk/events/hard-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      }),
+    onSuccess: (data) => {
+      toast.success(`Hard-deleted ${data.deleted} events`);
       setSelectedEvents(new Set());
       invalidateAll();
     },
@@ -614,13 +732,24 @@ export default function AdminPage() {
             onClear={() => setSelectedUsers(new Set())}
             actions={[
               {
-                label: 'Delete selected',
+                label: 'Soft-delete selected',
                 loading: bulkDeleteUsers.isPending,
                 onClick: () =>
                   setConfirm({
-                    title: `Delete ${selectedUsers.size} users?`,
-                    description: 'Soft-deletes accounts and revokes sessions. Cannot be undone from the app.',
+                    title: `Soft-delete ${selectedUsers.size} users?`,
+                    description: 'Anonymizes accounts and revokes sessions. Rows remain in the database.',
                     action: () => bulkDeleteUsers.mutate([...selectedUsers]),
+                  }),
+              },
+              {
+                label: 'Hard-delete selected',
+                loading: bulkHardDeleteUsers.isPending,
+                onClick: () =>
+                  setConfirm({
+                    title: `Permanently delete ${selectedUsers.size} users?`,
+                    description:
+                      'Irreversible. Removes users and their owned communities, hosted events, messages, and payments.',
+                    action: () => bulkHardDeleteUsers.mutate([...selectedUsers]),
                   }),
               },
             ]}
@@ -698,38 +827,56 @@ export default function AdminPage() {
                       </div>
                     </td>
                     <td className="p-3">
-                      {!row.deletedAt && row.id !== user.id ? (
+                      {row.id !== user.id ? (
                         <div className="flex flex-wrap gap-1.5">
-                          <Button
-                            size="sm"
-                            variant={row.suspendedAt ? 'secondary' : 'destructive'}
-                            onClick={() =>
-                              suspend.mutate({ id: row.id, suspendUser: !row.suspendedAt })
-                            }
-                          >
-                            {row.suspendedAt ? 'Unsuspend' : 'Ban'}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              shadowBan.mutate({ id: row.id, ban: !row.shadowBannedAt })
-                            }
-                          >
-                            {row.shadowBannedAt ? 'Un-shadow' : 'Shadow ban'}
-                          </Button>
+                          {!row.deletedAt ? (
+                            <>
+                              <Button
+                                size="sm"
+                                variant={row.suspendedAt ? 'secondary' : 'destructive'}
+                                onClick={() =>
+                                  suspend.mutate({ id: row.id, suspendUser: !row.suspendedAt })
+                                }
+                              >
+                                {row.suspendedAt ? 'Unsuspend' : 'Ban'}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                  shadowBan.mutate({ id: row.id, ban: !row.shadowBannedAt })
+                                }
+                              >
+                                {row.shadowBannedAt ? 'Un-shadow' : 'Shadow ban'}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() =>
+                                  setConfirm({
+                                    title: `Soft-delete ${row.name}?`,
+                                    description: 'Anonymizes the account and revokes sessions.',
+                                    action: () => deleteUser.mutate(row.id),
+                                  })
+                                }
+                              >
+                                Soft delete
+                              </Button>
+                            </>
+                          ) : null}
                           <Button
                             size="sm"
                             variant="destructive"
                             onClick={() =>
                               setConfirm({
-                                title: `Delete ${row.name}?`,
-                                description: 'Soft-deletes the account and revokes sessions.',
-                                action: () => deleteUser.mutate(row.id),
+                                title: `Hard-delete ${row.name}?`,
+                                description:
+                                  'Permanent. Deletes the user and owned communities, hosted events, messages, and payments.',
+                                action: () => hardDeleteUser.mutate(row.id),
                               })
                             }
                           >
-                            Delete
+                            Hard delete
                           </Button>
                         </div>
                       ) : null}
@@ -753,13 +900,23 @@ export default function AdminPage() {
             onClear={() => setSelectedGroups(new Set())}
             actions={[
               {
-                label: 'Delete selected',
+                label: 'Soft-delete selected',
                 loading: bulkDeleteGroups.isPending,
                 onClick: () =>
                   setConfirm({
-                    title: `Delete ${selectedGroups.size} communities?`,
-                    description: 'Soft-deletes communities so they leave discovery.',
+                    title: `Soft-delete ${selectedGroups.size} communities?`,
+                    description: 'Hides communities from discovery. Data remains until hard-deleted.',
                     action: () => bulkDeleteGroups.mutate([...selectedGroups]),
+                  }),
+              },
+              {
+                label: 'Hard-delete selected',
+                loading: bulkHardDeleteGroups.isPending,
+                onClick: () =>
+                  setConfirm({
+                    title: `Permanently delete ${selectedGroups.size} communities?`,
+                    description: 'Irreversible. Deletes communities and their events, members, and related data.',
+                    action: () => bulkHardDeleteGroups.mutate([...selectedGroups]),
                   }),
               },
             ]}
@@ -780,14 +937,12 @@ export default function AdminPage() {
                 {(groups.data?.items ?? []).map((row) => (
                   <tr key={row.id} className="border-b border-[var(--color-hairline)] last:border-0">
                     <td className="p-3">
-                      {!row.deletedAt ? (
-                        <input
-                          type="checkbox"
-                          checked={selectedGroups.has(row.id)}
-                          onChange={() => toggleId(selectedGroups, row.id, selectedGroups, setSelectedGroups)}
-                          aria-label={`Select ${row.name}`}
-                        />
-                      ) : null}
+                      <input
+                        type="checkbox"
+                        checked={selectedGroups.has(row.id)}
+                        onChange={() => toggleId(selectedGroups, row.id, selectedGroups, setSelectedGroups)}
+                        aria-label={`Select ${row.name}`}
+                      />
                     </td>
                     <td className="p-3">
                       <p className="font-semibold">{row.name}</p>
@@ -803,21 +958,40 @@ export default function AdminPage() {
                       )}
                     </td>
                     <td className="p-3">
-                      {!row.deletedAt ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        <Button size="sm" variant="outline" onClick={() => setMembersGroupId(row.id)}>
+                          Members
+                        </Button>
+                        {!row.deletedAt ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() =>
+                              setConfirm({
+                                title: `Soft-delete ${row.name}?`,
+                                description: 'Removes the community from discovery.',
+                                action: () => deleteGroup.mutate(row.id),
+                              })
+                            }
+                          >
+                            Soft delete
+                          </Button>
+                        ) : null}
                         <Button
                           size="sm"
                           variant="destructive"
                           onClick={() =>
                             setConfirm({
-                              title: `Delete ${row.name}?`,
-                              description: 'Removes the community from discovery.',
-                              action: () => deleteGroup.mutate(row.id),
+                              title: `Hard-delete ${row.name}?`,
+                              description:
+                                'Permanent. Deletes the community and all of its events and memberships.',
+                              action: () => hardDeleteGroup.mutate(row.id),
                             })
                           }
                         >
-                          Delete
+                          Hard delete
                         </Button>
-                      ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -847,6 +1021,16 @@ export default function AdminPage() {
                     action: () => bulkCancelEvents.mutate([...selectedEvents]),
                   }),
               },
+              {
+                label: 'Hard-delete selected',
+                loading: bulkHardDeleteEvents.isPending,
+                onClick: () =>
+                  setConfirm({
+                    title: `Permanently delete ${selectedEvents.size} events?`,
+                    description: 'Irreversible. Removes events and their RSVPs from the database.',
+                    action: () => bulkHardDeleteEvents.mutate([...selectedEvents]),
+                  }),
+              },
             ]}
           />
           <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--color-hairline)] bg-[var(--color-surface)]">
@@ -865,14 +1049,12 @@ export default function AdminPage() {
                 {(events.data?.items ?? []).map((row) => (
                   <tr key={row.id} className="border-b border-[var(--color-hairline)] last:border-0">
                     <td className="p-3">
-                      {row.status !== 'CANCELLED' ? (
-                        <input
-                          type="checkbox"
-                          checked={selectedEvents.has(row.id)}
-                          onChange={() => toggleId(selectedEvents, row.id, selectedEvents, setSelectedEvents)}
-                          aria-label={`Select ${row.title}`}
-                        />
-                      ) : null}
+                      <input
+                        type="checkbox"
+                        checked={selectedEvents.has(row.id)}
+                        onChange={() => toggleId(selectedEvents, row.id, selectedEvents, setSelectedEvents)}
+                        aria-label={`Select ${row.title}`}
+                      />
                     </td>
                     <td className="p-3">
                       <p className="font-semibold">{row.title}</p>
@@ -896,21 +1078,36 @@ export default function AdminPage() {
                       </Badge>
                     </td>
                     <td className="p-3">
-                      {row.status !== 'CANCELLED' ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {row.status !== 'CANCELLED' ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() =>
+                              setConfirm({
+                                title: `Cancel ${row.title}?`,
+                                description: 'Cancels the event for all attendees.',
+                                action: () => cancelEvent.mutate(row.id),
+                              })
+                            }
+                          >
+                            Cancel
+                          </Button>
+                        ) : null}
                         <Button
                           size="sm"
                           variant="destructive"
                           onClick={() =>
                             setConfirm({
-                              title: `Cancel ${row.title}?`,
-                              description: 'Cancels the event for all attendees.',
-                              action: () => cancelEvent.mutate(row.id),
+                              title: `Hard-delete ${row.title}?`,
+                              description: 'Permanent. Removes the event and all RSVPs.',
+                              action: () => hardDeleteEvent.mutate(row.id),
                             })
                           }
                         >
-                          Cancel
+                          Hard delete
                         </Button>
-                      ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1026,6 +1223,122 @@ export default function AdminPage() {
               <Button variant="secondary" className="flex-1" onClick={() => setConfirm(null)}>
                 Cancel
               </Button>
+            </div>
+          </DialogContent>
+        ) : null}
+      </Dialog>
+
+      <Dialog
+        open={membersGroupId != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMembersGroupId(null);
+            setAddMemberUserId('');
+            setAddMemberRole('MEMBER');
+          }
+        }}
+      >
+        {membersGroupId ? (
+          <DialogContent
+            title={groupMembers.data?.group.name ?? 'Community members'}
+            description="Assign OWNER, ADMIN, MODERATOR, or MEMBER. Adding a new user creates an active membership."
+          >
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="min-w-[180px] flex-1">
+                  <label className="mb-1 block text-[12px] font-semibold text-[var(--color-ink-tertiary)]">
+                    Add / assign user
+                  </label>
+                  <Select
+                    aria-label="User to assign"
+                    value={addMemberUserId}
+                    onChange={(e) => setAddMemberUserId(e.target.value)}
+                  >
+                    <option value="">Select user…</option>
+                    {(users.data?.items ?? [])
+                      .filter((u) => !u.deletedAt)
+                      .map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                          {u.email ? ` (${u.email})` : u.phone ? ` (${u.phone})` : ''}
+                        </option>
+                      ))}
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-[12px] font-semibold text-[var(--color-ink-tertiary)]">
+                    Role
+                  </label>
+                  <Select
+                    aria-label="Role to assign"
+                    value={addMemberRole}
+                    onChange={(e) => setAddMemberRole(e.target.value)}
+                    className="min-w-[140px]"
+                  >
+                    <option value="OWNER">OWNER</option>
+                    <option value="ADMIN">ADMIN</option>
+                    <option value="MODERATOR">MODERATOR</option>
+                    <option value="MEMBER">MEMBER</option>
+                  </Select>
+                </div>
+                <Button
+                  size="sm"
+                  disabled={!addMemberUserId || setGroupMemberRole.isPending}
+                  loading={setGroupMemberRole.isPending}
+                  onClick={() => {
+                    if (!addMemberUserId || !membersGroupId) return;
+                    setGroupMemberRole.mutate({
+                      groupId: membersGroupId,
+                      userId: addMemberUserId,
+                      role: addMemberRole,
+                    });
+                  }}
+                >
+                  Assign
+                </Button>
+              </div>
+
+              {groupMembers.isPending ? (
+                <Skeleton className="h-32 w-full" />
+              ) : (
+                <ul className="max-h-80 space-y-2 overflow-y-auto">
+                  {(groupMembers.data?.members ?? []).map((m) => (
+                    <li
+                      key={m.id}
+                      className="flex flex-wrap items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-hairline)] p-3"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold">{m.user.name}</p>
+                        <p className="truncate text-[12px] text-[var(--color-ink-tertiary)]">
+                          {m.user.email ?? m.user.phone ?? m.user.id}
+                          {m.status !== 'ACTIVE' ? ` · ${m.status}` : ''}
+                        </p>
+                      </div>
+                      <Select
+                        aria-label={`Role for ${m.user.name}`}
+                        value={m.role}
+                        disabled={Boolean(m.user.deletedAt) || setGroupMemberRole.isPending}
+                        onChange={(e) =>
+                          setGroupMemberRole.mutate({
+                            groupId: membersGroupId,
+                            userId: m.user.id,
+                            role: e.target.value,
+                          })
+                        }
+                        className="h-9 min-w-[130px]"
+                      >
+                        <option value="OWNER">OWNER</option>
+                        <option value="ADMIN">ADMIN</option>
+                        <option value="MODERATOR">MODERATOR</option>
+                        <option value="MEMBER">MEMBER</option>
+                      </Select>
+                    </li>
+                  ))}
+                  {(groupMembers.data?.members ?? []).length === 0 ? (
+                    <p className="text-[14px] text-[var(--color-ink-secondary)]">No members yet.</p>
+                  ) : null}
+                </ul>
+              )}
             </div>
           </DialogContent>
         ) : null}

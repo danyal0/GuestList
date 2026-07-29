@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { EventStatus } from '@prisma/client';
+import { EventStatus, GroupMemberRole } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminService } from './admin.service';
@@ -10,24 +10,69 @@ describe('AdminService', () => {
   let auditLog: jest.Mock;
   let userFindUnique: jest.Mock;
   let userUpdate: jest.Mock;
+  let userDelete: jest.Mock;
   let refreshUpdateMany: jest.Mock;
   let groupFindUnique: jest.Mock;
   let groupUpdate: jest.Mock;
+  let groupDelete: jest.Mock;
+  let groupFindMany: jest.Mock;
   let eventFindUnique: jest.Mock;
   let eventUpdate: jest.Mock;
+  let eventDelete: jest.Mock;
+  let eventDeleteMany: jest.Mock;
+  let groupMemberFindUnique: jest.Mock;
+  let groupMemberFindMany: jest.Mock;
+  let groupMemberUpdate: jest.Mock;
+  let groupMemberCreate: jest.Mock;
+  let groupMemberUpdateMany: jest.Mock;
+  let messageDeleteMany: jest.Mock;
+  let paymentDeleteMany: jest.Mock;
+  let reportUpdateMany: jest.Mock;
   let transaction: jest.Mock;
 
   beforeEach(async () => {
     auditLog = jest.fn().mockResolvedValue({});
     userFindUnique = jest.fn();
     userUpdate = jest.fn().mockResolvedValue({});
+    userDelete = jest.fn().mockResolvedValue({});
     refreshUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
     groupFindUnique = jest.fn();
     groupUpdate = jest.fn().mockResolvedValue({});
+    groupDelete = jest.fn().mockResolvedValue({});
+    groupFindMany = jest.fn().mockResolvedValue([]);
     eventFindUnique = jest.fn();
     eventUpdate = jest.fn().mockResolvedValue({});
+    eventDelete = jest.fn().mockResolvedValue({});
+    eventDeleteMany = jest.fn().mockResolvedValue({ count: 0 });
+    groupMemberFindUnique = jest.fn();
+    groupMemberFindMany = jest.fn().mockResolvedValue([]);
+    groupMemberUpdate = jest.fn().mockResolvedValue({});
+    groupMemberCreate = jest.fn().mockResolvedValue({});
+    groupMemberUpdateMany = jest.fn().mockResolvedValue({ count: 0 });
+    messageDeleteMany = jest.fn().mockResolvedValue({ count: 0 });
+    paymentDeleteMany = jest.fn().mockResolvedValue({ count: 0 });
+    reportUpdateMany = jest.fn().mockResolvedValue({ count: 0 });
     transaction = jest.fn(async (ops: unknown) => {
       if (Array.isArray(ops)) return Promise.all(ops);
+      if (typeof ops === 'function') {
+        return ops({
+          group: {
+            findMany: groupFindMany,
+            delete: groupDelete,
+            update: groupUpdate,
+          },
+          event: { deleteMany: eventDeleteMany },
+          message: { deleteMany: messageDeleteMany },
+          payment: { deleteMany: paymentDeleteMany },
+          report: { updateMany: reportUpdateMany },
+          user: { delete: userDelete },
+          groupMember: {
+            updateMany: groupMemberUpdateMany,
+            update: groupMemberUpdate,
+            create: groupMemberCreate,
+          },
+        });
+      }
       return ops;
     });
 
@@ -36,23 +81,36 @@ describe('AdminService', () => {
       user: {
         findUnique: userFindUnique,
         update: userUpdate,
+        delete: userDelete,
         count: jest.fn().mockResolvedValue(0),
       },
       refreshToken: { updateMany: refreshUpdateMany },
       group: {
         findUnique: groupFindUnique,
         update: groupUpdate,
+        delete: groupDelete,
+        findMany: groupFindMany,
         count: jest.fn().mockResolvedValue(0),
+      },
+      groupMember: {
+        findUnique: groupMemberFindUnique,
+        findMany: groupMemberFindMany,
+        update: groupMemberUpdate,
+        create: groupMemberCreate,
+        updateMany: groupMemberUpdateMany,
       },
       event: {
         findUnique: eventFindUnique,
         update: eventUpdate,
+        delete: eventDelete,
+        deleteMany: eventDeleteMany,
         count: jest.fn().mockResolvedValue(0),
       },
-      report: { count: jest.fn().mockResolvedValue(0) },
+      message: { deleteMany: messageDeleteMany, count: jest.fn().mockResolvedValue(0) },
+      payment: { deleteMany: paymentDeleteMany },
+      report: { count: jest.fn().mockResolvedValue(0), updateMany: reportUpdateMany },
       friendship: { count: jest.fn().mockResolvedValue(0) },
       rsvp: { count: jest.fn().mockResolvedValue(0) },
-      message: { count: jest.fn().mockResolvedValue(0) },
       auditLog: { findMany: jest.fn(), count: jest.fn() },
     };
 
@@ -160,6 +218,119 @@ describe('AdminService', () => {
         where: { id: 'g1' },
         data: { deletedAt: expect.any(Date) },
       });
+    });
+  });
+
+  describe('hardDeleteUser', () => {
+    it('permanently deletes a user and dependents', async () => {
+      userFindUnique.mockResolvedValue({
+        id: 'u1',
+        name: 'Pat',
+        email: 'pat@example.com',
+        phone: null,
+      });
+      groupFindMany.mockResolvedValue([{ id: 'g1' }]);
+      await service.hardDeleteUser('admin1', 'u1');
+      expect(groupDelete).toHaveBeenCalledWith({ where: { id: 'g1' } });
+      expect(eventDeleteMany).toHaveBeenCalledWith({ where: { hostId: 'u1' } });
+      expect(userDelete).toHaveBeenCalledWith({ where: { id: 'u1' } });
+      expect(auditLog).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'admin.user_hard_delete', targetId: 'u1' }),
+      );
+    });
+
+    it('rejects deleting self', async () => {
+      await expect(service.hardDeleteUser('admin1', 'admin1')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('hardDeleteGroup', () => {
+    it('permanently deletes a community', async () => {
+      groupFindUnique.mockResolvedValue({ id: 'g1', name: 'Court A', slug: 'court-a' });
+      await service.hardDeleteGroup('admin1', 'g1');
+      expect(groupDelete).toHaveBeenCalledWith({ where: { id: 'g1' } });
+      expect(auditLog).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'admin.group_hard_delete', targetId: 'g1' }),
+      );
+    });
+  });
+
+  describe('hardDeleteEvent', () => {
+    it('permanently deletes an event', async () => {
+      eventFindUnique.mockResolvedValue({
+        id: 'e1',
+        title: 'Pickup',
+        status: EventStatus.CANCELLED,
+      });
+      await service.hardDeleteEvent('admin1', 'e1');
+      expect(eventDelete).toHaveBeenCalledWith({ where: { id: 'e1' } });
+      expect(auditLog).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'admin.event_hard_delete', targetId: 'e1' }),
+      );
+    });
+  });
+
+  describe('setGroupMemberRole', () => {
+    it('updates an existing member role', async () => {
+      groupFindUnique.mockResolvedValue({ id: 'g1', ownerId: 'owner1', deletedAt: null });
+      userFindUnique.mockResolvedValue({ id: 'u1', deletedAt: null });
+      groupMemberFindUnique.mockResolvedValue({ id: 'm1', role: GroupMemberRole.MEMBER });
+      await service.setGroupMemberRole('admin1', 'g1', 'u1', GroupMemberRole.MODERATOR);
+      expect(groupMemberUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'm1' },
+          data: expect.objectContaining({ role: GroupMemberRole.MODERATOR }),
+        }),
+      );
+      expect(auditLog).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'admin.group_member_role', targetId: 'g1' }),
+      );
+    });
+
+    it('creates membership when missing', async () => {
+      groupFindUnique.mockResolvedValue({ id: 'g1', ownerId: 'owner1', deletedAt: null });
+      userFindUnique.mockResolvedValue({ id: 'u2', deletedAt: null });
+      groupMemberFindUnique.mockResolvedValue(null);
+      await service.setGroupMemberRole('admin1', 'g1', 'u2', GroupMemberRole.ADMIN);
+      expect(groupMemberCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            groupId: 'g1',
+            userId: 'u2',
+            role: GroupMemberRole.ADMIN,
+          }),
+        }),
+      );
+    });
+
+    it('transfers ownership and demotes prior owners', async () => {
+      groupFindUnique.mockResolvedValue({ id: 'g1', ownerId: 'owner1', deletedAt: null });
+      userFindUnique.mockResolvedValue({ id: 'u2', deletedAt: null });
+      groupMemberFindUnique.mockResolvedValue({ id: 'm2', role: GroupMemberRole.ADMIN });
+      await service.setGroupMemberRole('admin1', 'g1', 'u2', GroupMemberRole.OWNER);
+      expect(groupMemberUpdateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { groupId: 'g1', role: GroupMemberRole.OWNER },
+          data: { role: GroupMemberRole.ADMIN },
+        }),
+      );
+      expect(groupUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'g1' },
+          data: { ownerId: 'u2' },
+        }),
+      );
+    });
+
+    it('rejects demoting the current owner without transfer', async () => {
+      groupFindUnique.mockResolvedValue({ id: 'g1', ownerId: 'owner1', deletedAt: null });
+      userFindUnique.mockResolvedValue({ id: 'owner1', deletedAt: null });
+      groupMemberFindUnique.mockResolvedValue({ id: 'm1', role: GroupMemberRole.OWNER });
+      await expect(
+        service.setGroupMemberRole('admin1', 'g1', 'owner1', GroupMemberRole.ADMIN),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 
