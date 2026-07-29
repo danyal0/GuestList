@@ -1,5 +1,5 @@
-import { createHash } from 'crypto';
 import { EventImportService } from './event-import.service';
+import { buildImportKey } from './event-import-match';
 
 describe('EventImportService parsing', () => {
   const service = new EventImportService({} as never, { log: jest.fn() } as never);
@@ -36,7 +36,12 @@ Board Game Night,"Sat, Aug 1 · 7:00 PM CDT",Milwaukee Game Night,Corner Street 
   });
 
   it('builds stable import keys', () => {
-    const key = createHash('sha1').update('https://meetup.com/x/events/1').digest('hex').slice(0, 16);
-    expect(key).toHaveLength(16);
+    const key = buildImportKey({
+      link: 'https://meetup.com/x/events/123456789',
+      slug: 'x',
+      title: 'Event',
+      start: new Date('2026-07-31T18:30:00-05:00'),
+    });
+    expect(key).toBe('123456789');
   });
 });
