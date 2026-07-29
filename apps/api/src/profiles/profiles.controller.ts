@@ -73,6 +73,13 @@ export class ProfilesController {
     return { success: true };
   }
 
+  @Delete('friend-requests/:userId')
+  @HttpCode(HttpStatus.OK)
+  async cancelFriendRequest(@CurrentUser() user: AuthUser, @Param('userId') userId: string) {
+    await this.profilesService.cancelFriendRequest(user.id, userId);
+    return { success: true };
+  }
+
   @Post('friend-requests/:id/accept')
   @HttpCode(HttpStatus.OK)
   async acceptFriendRequest(@CurrentUser() user: AuthUser, @Param('id') id: string) {

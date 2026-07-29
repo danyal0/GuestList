@@ -8,14 +8,15 @@ import { ProfilesService } from './profiles.service';
 describe('ProfilesService friendships', () => {
   let service: ProfilesService;
   let prisma: {
-    friendship: {
-      findUnique: jest.Mock;
-      findFirst: jest.Mock;
-      findMany: jest.Mock;
-      update: jest.Mock;
-      delete: jest.Mock;
-      deleteMany: jest.Mock;
-    };
+      friendship: {
+        findUnique: jest.Mock;
+        findFirst: jest.Mock;
+        findMany: jest.Mock;
+        create: jest.Mock;
+        update: jest.Mock;
+        delete: jest.Mock;
+        deleteMany: jest.Mock;
+      };
     user: { findUniqueOrThrow: jest.Mock; findFirst: jest.Mock };
     userBlock: {
       findFirst: jest.Mock;
@@ -32,6 +33,7 @@ describe('ProfilesService friendships', () => {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
         findMany: jest.fn(),
+        create: jest.fn().mockResolvedValue({ id: 'fs_new' }),
         update: jest.fn().mockResolvedValue({}),
         delete: jest.fn().mockResolvedValue({}),
         deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -96,7 +98,8 @@ describe('ProfilesService friendships', () => {
           where: {
             addresseeId: 'usr_b',
             requesterId: 'usr_a',
-            status: FriendshipStatus.PENDING,
+            OR: [{ status: FriendshipStatus.PENDING }, { status: null }],
+            respondedAt: null,
           },
         }),
       );
@@ -125,6 +128,19 @@ describe('ProfilesService friendships', () => {
       await expect(service.respondToFriendRequest('usr_b', 'usr_a', true)).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('cancelFriendRequest', () => {
+    it('deletes an outbound pending request', async () => {
+      prisma.friendship.findFirst.mockResolvedValue({
+        id: 'fs_1',
+        requesterId: 'usr_a',
+        addresseeId: 'usr_b',
+        status: 'PENDING',
+      });
+      await service.cancelFriendRequest('usr_a', 'usr_b');
+      expect(prisma.friendship.delete).toHaveBeenCalledWith({ where: { id: 'fs_1' } });
     });
   });
 

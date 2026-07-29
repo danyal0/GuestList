@@ -220,6 +220,13 @@ export class FileStore {
       changed = true;
     }
 
+    for (const friendship of this.db.friendships) {
+      if (!friendship.status) {
+        friendship.status = friendship.respondedAt ? 'ACCEPTED' : 'PENDING';
+        changed = true;
+      }
+    }
+
     for (const user of this.db.users) {
       if (!('shadowBannedAt' in user)) {
         user.shadowBannedAt = null;
