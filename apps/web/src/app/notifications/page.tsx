@@ -232,9 +232,13 @@ export default function NotificationsPage() {
                           }
                           const stillPending =
                             pendingFriendRequests.isLoading ||
-                            !pendingFriendRequests.isSuccess ||
-                            isPendingFriendRequest(notification.payload);
-                          if (!stillPending) {
+                            (pendingFriendRequests.isSuccess &&
+                              isPendingFriendRequest(notification.payload));
+                          if (
+                            !pendingFriendRequests.isLoading &&
+                            pendingFriendRequests.isSuccess &&
+                            !stillPending
+                          ) {
                             return (
                               <span className="text-[13px] font-semibold text-[var(--color-ink-tertiary)]">
                                 Already responded

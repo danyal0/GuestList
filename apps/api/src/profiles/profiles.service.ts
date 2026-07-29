@@ -71,16 +71,28 @@ export class ProfilesService {
     if (viewerId && viewerId !== profileId) {
       const friendship = await this.prisma.friendship.findFirst({
         where: {
-          OR: [
-            { requesterId: viewerId, addresseeId: profileId },
-            { requesterId: profileId, addresseeId: viewerId },
+          AND: [
+            {
+              OR: [
+                { requesterId: viewerId, addresseeId: profileId },
+                { requesterId: profileId, addresseeId: viewerId },
+              ],
+            },
+            {
+              OR: [
+                { status: { in: [FriendshipStatus.PENDING, FriendshipStatus.ACCEPTED] } },
+                { status: null, respondedAt: null },
+              ],
+            },
           ],
-          status: { in: [FriendshipStatus.PENDING, FriendshipStatus.ACCEPTED] },
         },
       });
       if (friendship) {
+        const status =
+          friendship.status ??
+          (friendship.respondedAt ? FriendshipStatus.ACCEPTED : FriendshipStatus.PENDING);
         friendshipStatus =
-          friendship.status === FriendshipStatus.ACCEPTED
+          status === FriendshipStatus.ACCEPTED
             ? 'friends'
             : friendship.requesterId === viewerId
               ? 'pending_sent'
@@ -164,10 +176,13 @@ export class ProfilesService {
 
     let friendshipId: string;
     if (existing) {
-      if (existing.status === FriendshipStatus.ACCEPTED) {
+      const existingStatus =
+        existing.status ??
+        (existing.respondedAt ? FriendshipStatus.DECLINED : FriendshipStatus.PENDING);
+      if (existingStatus === FriendshipStatus.ACCEPTED) {
         throw new ConflictException('You are already friends');
       }
-      if (existing.status === FriendshipStatus.PENDING) {
+      if (existingStatus === FriendshipStatus.PENDING) {
         throw new ConflictException('A friend request is already pending');
       }
       // A previously declined request can be retried.
@@ -177,7 +192,9 @@ export class ProfilesService {
       });
       friendshipId = updated.id;
     } else {
-      const created = await this.prisma.friendship.create({ data: { requesterId, addresseeId } });
+      const created = await this.prisma.friendship.create({
+        data: { requesterId, addresseeId, status: FriendshipStatus.PENDING },
+      });
       friendshipId = created.id;
     }
 
@@ -207,11 +224,15 @@ export class ProfilesService {
         where: {
           addresseeId: userId,
           requesterId: friendshipIdOrRequesterId,
-          status: FriendshipStatus.PENDING,
+          OR: [{ status: FriendshipStatus.PENDING }, { status: null }],
+          respondedAt: null,
         },
       });
     }
-    if (!friendship || friendship.status !== FriendshipStatus.PENDING) {
+    const pendingStatus =
+      friendship?.status ??
+      (friendship?.respondedAt ? FriendshipStatus.DECLINED : FriendshipStatus.PENDING);
+    if (!friendship || pendingStatus !== FriendshipStatus.PENDING) {
       throw new NotFoundException('Friend request not found');
     }
     if (friendship.addresseeId !== userId) {
@@ -257,10 +278,30 @@ export class ProfilesService {
 
   async getPendingRequests(userId: string) {
     return this.prisma.friendship.findMany({
-      where: { addresseeId: userId, status: FriendshipStatus.PENDING },
+      where: {
+        addresseeId: userId,
+        OR: [{ status: FriendshipStatus.PENDING }, { status: null }],
+        respondedAt: null,
+      },
       include: { requester: { select: publicUserSelect } },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async cancelFriendRequest(requesterId: string, addresseeId: string): Promise<void> {
+    if (requesterId === addresseeId) {
+      throw new BadRequestException('Invalid friend request');
+    }
+    const friendship = await this.prisma.friendship.findFirst({
+      where: {
+        requesterId,
+        addresseeId,
+        OR: [{ status: FriendshipStatus.PENDING }, { status: null }],
+        respondedAt: null,
+      },
+    });
+    if (!friendship) throw new NotFoundException('Friend request not found');
+    await this.prisma.friendship.delete({ where: { id: friendship.id } });
   }
 
   /** Friend ids used by the recommendation engine's social signal. */

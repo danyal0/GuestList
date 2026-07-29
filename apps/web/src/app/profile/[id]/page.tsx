@@ -30,11 +30,54 @@ export default function ProfilePage() {
   const friendRequest = useMutation({
     mutationFn: () =>
       api('/profiles/friend-requests', { method: 'POST', body: JSON.stringify({ userId: id }) }),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['profile', id] });
+      const previous = queryClient.getQueryData<ProfileView>(['profile', id]);
+      if (previous) {
+        queryClient.setQueryData<ProfileView>(['profile', id], {
+          ...previous,
+          friendshipStatus: 'pending_sent',
+        });
+      }
+      return { previous };
+    },
     onSuccess: () => {
       toast.success('Friend request sent!');
       void queryClient.invalidateQueries({ queryKey: ['profile', id] });
+      void queryClient.invalidateQueries({ queryKey: ['friend-requests-pending'] });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not send request'),
+    onError: (error, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['profile', id], context.previous);
+      }
+      toast.error(error instanceof Error ? error.message : 'Could not send request');
+    },
+  });
+
+  const cancelFriendRequest = useMutation({
+    mutationFn: () => api(`/profiles/friend-requests/${id}`, { method: 'DELETE' }),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['profile', id] });
+      const previous = queryClient.getQueryData<ProfileView>(['profile', id]);
+      if (previous) {
+        queryClient.setQueryData<ProfileView>(['profile', id], {
+          ...previous,
+          friendshipStatus: 'none',
+        });
+      }
+      return { previous };
+    },
+    onSuccess: () => {
+      toast.success('Friend request withdrawn');
+      void queryClient.invalidateQueries({ queryKey: ['profile', id] });
+      void queryClient.invalidateQueries({ queryKey: ['friend-requests-pending'] });
+    },
+    onError: (error, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['profile', id], context.previous);
+      }
+      toast.error(error instanceof Error ? error.message : 'Could not withdraw request');
+    },
   });
 
   const respondFriend = useMutation({
@@ -158,8 +201,12 @@ export default function ProfilePage() {
                 </Button>
               )}
               {friendshipStatus === 'pending_sent' && (
-                <Button disabled variant="outline">
-                  Request sent
+                <Button
+                  variant="outline"
+                  onClick={() => cancelFriendRequest.mutate()}
+                  loading={cancelFriendRequest.isPending}
+                >
+                  Withdraw request
                 </Button>
               )}
               {friendshipStatus === 'pending_received' && (

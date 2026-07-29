@@ -624,6 +624,7 @@ function delegate(model: string) {
       if (model === 'conversationParticipant' && !data.joinedAt) data.joinedAt = now;
       if (model === 'notification' && data.read === undefined) data.read = false;
       if (model === 'rsvp' && !data.status) data.status = 'GOING';
+      if (model === 'friendship' && !data.status) data.status = 'PENDING';
       if (model === 'event' && data.capacity === undefined) data.capacity = null;
       if (model === 'event' && data.allowWaitlist === undefined) data.allowWaitlist = true;
       if (model === 'user') {
@@ -667,6 +668,7 @@ function delegate(model: string) {
         if (!data.id) data.id = fileStore.newId(model);
         if (!data.createdAt) data.createdAt = now;
         if (!data.updatedAt) data.updatedAt = now;
+        if (model === 'friendship' && !data.status) data.status = 'PENDING';
         if (!args.skipDuplicates) uniqueConflict(model, data);
         else {
           try {
