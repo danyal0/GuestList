@@ -109,7 +109,7 @@ export default function SignupPage() {
           <Label htmlFor="name">Full name</Label>
           <Input id="name" name="name" autoComplete="name" placeholder="Alex Rivera" error={errors.name} required />
           <p className="mt-1.5 text-[12px] text-[var(--color-ink-tertiary)]">
-            Use the same first name friends use in WhatsApp (e.g. Khatera) so we can offer to link prior RSVPs.
+            Use the same first name friends use in WhatsApp (e.g. Maria) so we can offer to link prior RSVPs.
           </p>
         </div>
         <div>
