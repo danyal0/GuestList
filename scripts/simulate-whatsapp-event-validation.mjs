@@ -176,6 +176,68 @@ async function main() {
     );
   }
 
+  // 6 reschedule: create then move time — validate the change
+  {
+    const origMsg = `false_120363validate@g.us_${stamp}_rsbase`;
+    const base = await req('/api/whatsapp/create-event', {
+      senderPhone: '4145550666',
+      senderLid: '600500400300200',
+      senderName: 'Validation Host',
+      timezone: 'America/Chicago',
+      whatsappMessageId: origMsg,
+      messageBody: 'tennis at Atwater tomorrow at 6pm',
+      confidence: 0.92,
+      venueConfidence: 0.95,
+      timeConfidence: 0.9,
+    });
+    print('6a) base event for reschedule', base);
+    assert('6a created', base.status < 400 && base.json?.event?.id, `status=${base.status}`);
+
+    const badMove = await req('/api/whatsapp/create-event', {
+      senderPhone: '4145550666',
+      senderLid: '600500400300200',
+      senderName: 'Validation Host',
+      timezone: 'America/Chicago',
+      whatsappMessageId: `false_120363validate@g.us_${stamp}_rsbad`,
+      targetWhatsappMessageId: origMsg,
+      messageBody: 'moved to 2am',
+      suggestedTime: '2026-07-30T02:00:00-05:00',
+      isReschedule: true,
+      rescheduleConfidence: 0.95,
+      confidence: 0.9,
+      timeConfidence: 0.9,
+    });
+    print('6b) reschedule to 2am', badMove);
+    assert('6b rejected', badMove.status === 422, `status=${badMove.status}`);
+    assert(
+      '6b OUTSIDE_HOURS',
+      badMove.json?.code === 'OUTSIDE_HOURS',
+      `code=${badMove.json?.code}`,
+    );
+
+    const goodMove = await req('/api/whatsapp/create-event', {
+      senderPhone: '4145550666',
+      senderLid: '600500400300200',
+      senderName: 'Validation Host',
+      timezone: 'America/Chicago',
+      whatsappMessageId: `false_120363validate@g.us_${stamp}_rsgood`,
+      targetWhatsappMessageId: origMsg,
+      messageBody: 'moved to 7pm at Atwater',
+      suggestedTime: '2026-07-30T19:00:00-05:00',
+      isReschedule: true,
+      rescheduleConfidence: 0.95,
+      confidence: 0.92,
+      timeConfidence: 0.9,
+      venueConfidence: 0.9,
+    });
+    print('6c) reschedule to 7pm', goodMove);
+    assert(
+      '6c updated',
+      goodMove.status < 400 && goodMove.json?.rescheduled === true,
+      `status=${goodMove.status} body=${JSON.stringify(goodMove.json)}`,
+    );
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 }

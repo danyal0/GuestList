@@ -1,16 +1,18 @@
 /**
- * Pre-create validation for WhatsApp → MKE Plays events.
+ * Pre-create / pre-reschedule validation for WhatsApp → MKE Plays events.
  *
- * Goals (from partial-message scenarios):
+ * Goals:
  * 1. Time-only → reject (incomplete)
  * 2. Sport + time, no venue → reject (need a known court)
- * 3. Sport + known venue (± time) → accept (time may default)
+ * 3. Sport + known venue (± time) → accept when we are confident it makes sense
  * 4. Known venue + time outside hours → reject
  * 5. Unknown venue → reject
  * 6. Sport that cannot be played at the venue (e.g. swimming at courts) → reject
+ * 7. Sense/confidence gate: "does this make sense? are we confident?"
+ * 8. Reschedule: only apply stated time/venue changes; validate those changes
  *
  * All sports are supported. We only reject clear sport↔venue mismatches.
- * Cancel / reschedule of an existing event bypasses these create rules.
+ * Cancel of an existing event bypasses these create rules.
  */
 
 import type { CatalogVenue, SportCode } from './whatsapp-event-enrich';
@@ -29,7 +31,9 @@ export type WhatsappCreateValidationCode =
   | 'MISSING_VENUE'
   | 'UNKNOWN_VENUE'
   | 'SPORT_VENUE_MISMATCH'
-  | 'OUTSIDE_HOURS';
+  | 'OUTSIDE_HOURS'
+  | 'LOW_CONFIDENCE'
+  | 'NO_MATERIAL_CHANGE';
 
 export type WhatsappCreateValidationResult =
   | { ok: true }
@@ -291,6 +295,235 @@ export function validateWhatsappEventCreate(input: {
         closeHour,
         venue: catalog.slug,
         timeWasExplicit: timeExplicit,
+      },
+    };
+  }
+
+  return { ok: true };
+}
+
+/** Default minimum self-confidence before create/reschedule is accepted. */
+export const DEFAULT_SENSE_MIN_CONFIDENCE = 0.72;
+
+export type EventSenseAssessment = {
+  makesSense: boolean;
+  confidence: number;
+  reason: string;
+  factors: string[];
+};
+
+/**
+ * Local "does this make sense / am I confident?" gate.
+ * Used always; optional live LLM check can further lower confidence.
+ */
+export function assessEventSense(input: {
+  mode: 'create' | 'reschedule';
+  messageBody?: string | null;
+  title?: string | null;
+  catalogVenue?: CatalogVenue | null;
+  startTime: Date;
+  timezone: string;
+  timeWasExplicit?: boolean;
+  /** True when the message/AI clearly pointed at a catalog or free-form place. */
+  venueWasExplicit?: boolean;
+  botConfidence?: number | null;
+  venueConfidence?: number | null;
+  timeConfidence?: number | null;
+  changes?: { timeChanged: boolean; venueChanged: boolean };
+}): EventSenseAssessment {
+  const factors: string[] = [];
+  let score = 0.15; // base skepticism — must earn confidence
+  const catalog = input.catalogVenue ?? null;
+  const timeExplicit = Boolean(input.timeWasExplicit);
+  const venueExplicit = Boolean(input.venueWasExplicit || catalog);
+  const sport = detectSportFromText(input.messageBody, input.title);
+
+  if (catalog) {
+    score += 0.35;
+    factors.push(`known venue ${catalog.slug}`);
+  } else {
+    factors.push('no catalog venue');
+  }
+
+  if (timeExplicit) {
+    score += 0.22;
+    factors.push('explicit time');
+  } else if (input.mode === 'create') {
+    score += 0.08;
+    factors.push('default time (weaker)');
+  } else {
+    factors.push('time unchanged or defaulted');
+  }
+
+  if (sport) {
+    score += 0.12;
+    factors.push(`sport ${sport.toLowerCase()}`);
+  } else if (catalog) {
+    score += 0.08;
+    factors.push('sport inferred from court venue');
+  }
+
+  if (catalog && isWithinVenueHours(input.startTime, input.timezone, catalog)) {
+    score += 0.1;
+    factors.push('within court hours');
+  }
+
+  if (typeof input.venueConfidence === 'number' && input.venueConfidence >= 0.8) {
+    score += 0.05;
+    factors.push(`venueConfidence ${input.venueConfidence.toFixed(2)}`);
+  }
+  if (typeof input.timeConfidence === 'number' && input.timeConfidence >= 0.8) {
+    score += 0.05;
+    factors.push(`timeConfidence ${input.timeConfidence.toFixed(2)}`);
+  }
+  if (typeof input.botConfidence === 'number' && input.botConfidence >= 0.75) {
+    score += 0.08;
+    factors.push(`botConfidence ${input.botConfidence.toFixed(2)}`);
+  } else if (typeof input.botConfidence === 'number' && input.botConfidence < 0.55) {
+    score -= 0.15;
+    factors.push(`low botConfidence ${input.botConfidence.toFixed(2)}`);
+  }
+
+  if (input.mode === 'reschedule') {
+    const timeChanged = Boolean(input.changes?.timeChanged);
+    const venueChanged = Boolean(input.changes?.venueChanged);
+    if (!timeChanged && !venueChanged) {
+      return {
+        makesSense: false,
+        confidence: 0.2,
+        reason: 'Reschedule stated, but neither time nor venue actually changed.',
+        factors: [...factors, 'no material change'],
+      };
+    }
+    if (timeChanged && !timeExplicit) {
+      score -= 0.25;
+      factors.push('time changed without an explicit time cue (risky default)');
+    }
+    if (venueChanged && !venueExplicit && !catalog) {
+      score -= 0.3;
+      factors.push('venue changed without a known court');
+    }
+    if (timeChanged) factors.push('time change');
+    if (venueChanged) factors.push('venue change');
+    score += 0.05; // slight boost for intentional update
+  }
+
+  // Cap and floor.
+  const confidence = Math.max(0, Math.min(0.99, score));
+  const min = Number(process.env.WHATSAPP_SENSE_MIN_CONFIDENCE || DEFAULT_SENSE_MIN_CONFIDENCE);
+  const makesSense = confidence >= min && Boolean(catalog);
+
+  return {
+    makesSense,
+    confidence,
+    reason: makesSense
+      ? `Looks like a real meetup (confidence ${confidence.toFixed(2)}).`
+      : `Not confident enough to save this (confidence ${confidence.toFixed(2)} < ${min}).`,
+    factors,
+  };
+}
+
+/**
+ * Structural rules + sense/confidence gate for create or material reschedule.
+ */
+export function validateWhatsappEventProposal(input: {
+  mode: 'create' | 'reschedule';
+  messageBody?: string | null;
+  title?: string | null;
+  suggestedTime?: string | null;
+  venue?: string | null;
+  locationName?: string | null;
+  address?: string | null;
+  catalogVenue?: CatalogVenue | null;
+  freeformLocation?: string | null;
+  startTime: Date;
+  timezone: string;
+  timeWasExplicit?: boolean;
+  venueWasExplicit?: boolean;
+  botConfidence?: number | null;
+  venueConfidence?: number | null;
+  timeConfidence?: number | null;
+  changes?: { timeChanged: boolean; venueChanged: boolean };
+  /** Optional extra confidence from a live LLM self-check (0–1). */
+  aiSenseConfidence?: number | null;
+  aiSenseReason?: string | null;
+}): WhatsappCreateValidationResult {
+  if (input.mode === 'reschedule') {
+    const timeChanged = Boolean(input.changes?.timeChanged);
+    const venueChanged = Boolean(input.changes?.venueChanged);
+    if (!timeChanged && !venueChanged) {
+      return {
+        ok: false,
+        code: 'NO_MATERIAL_CHANGE',
+        message:
+          'Reschedule ignored — say what changed (new time and/or a known court).',
+        hints: [
+          'Example: “moved to 7pm” or “moved to Atwater at 6”.',
+        ],
+        details: { timeChanged, venueChanged },
+      };
+    }
+  }
+
+  const structural = validateWhatsappEventCreate({
+    messageBody: input.messageBody,
+    title: input.title,
+    suggestedTime: input.suggestedTime,
+    venue: input.venue,
+    locationName: input.locationName,
+    address: input.address,
+    catalogVenue: input.catalogVenue,
+    freeformLocation: input.freeformLocation,
+    startTime: input.startTime,
+    timezone: input.timezone,
+    timeWasExplicit: input.timeWasExplicit,
+  });
+  if (!structural.ok) return structural;
+
+  const sense = assessEventSense({
+    mode: input.mode,
+    messageBody: input.messageBody,
+    title: input.title,
+    catalogVenue: input.catalogVenue,
+    startTime: input.startTime,
+    timezone: input.timezone,
+    timeWasExplicit: input.timeWasExplicit,
+    venueWasExplicit: input.venueWasExplicit,
+    botConfidence: input.botConfidence,
+    venueConfidence: input.venueConfidence,
+    timeConfidence: input.timeConfidence,
+    changes: input.changes,
+  });
+
+  let confidence = sense.confidence;
+  let reason = sense.reason;
+  if (
+    typeof input.aiSenseConfidence === 'number' &&
+    Number.isFinite(input.aiSenseConfidence)
+  ) {
+    confidence = Math.min(confidence, input.aiSenseConfidence);
+    if (input.aiSenseReason) {
+      reason = `${reason} AI: ${input.aiSenseReason}`;
+    }
+  }
+
+  const min = Number(
+    process.env.WHATSAPP_SENSE_MIN_CONFIDENCE || DEFAULT_SENSE_MIN_CONFIDENCE,
+  );
+  if (!sense.makesSense || confidence < min) {
+    return {
+      ok: false,
+      code: 'LOW_CONFIDENCE',
+      message: reason,
+      hints: [
+        'Include a known court and a clear time so we are confident this is a real meetup.',
+        'Example: “Tennis at Atwater tomorrow at 6pm”',
+      ],
+      details: {
+        confidence,
+        minConfidence: min,
+        factors: sense.factors,
+        aiSenseConfidence: input.aiSenseConfidence ?? null,
       },
     };
   }
