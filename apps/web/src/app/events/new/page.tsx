@@ -14,12 +14,39 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 
-const RECURRENCE_PRESETS = [
-  { value: '', label: 'Does not repeat' },
-  { value: 'FREQ=WEEKLY;COUNT=8', label: 'Weekly · 8 times' },
-  { value: 'FREQ=WEEKLY;INTERVAL=2;COUNT=6', label: 'Every 2 weeks · 6 times' },
-  { value: 'FREQ=MONTHLY;COUNT=6', label: 'Monthly · 6 times' },
+type RecurrenceKind = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
+
+const RECURRENCE_KINDS: { value: RecurrenceKind; label: string }[] = [
+  { value: 'none', label: 'Does not repeat' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'custom', label: 'Custom (RRULE)' },
 ];
+
+const MAX_OCCURRENCES = 26;
+
+function buildRecurrenceRule(
+  kind: RecurrenceKind,
+  count: number,
+  customRule: string,
+): string | undefined {
+  const safeCount = Math.min(MAX_OCCURRENCES, Math.max(2, count));
+  switch (kind) {
+    case 'daily':
+      return `FREQ=DAILY;COUNT=${safeCount}`;
+    case 'weekly':
+      return `FREQ=WEEKLY;COUNT=${safeCount}`;
+    case 'monthly':
+      return `FREQ=MONTHLY;COUNT=${safeCount}`;
+    case 'custom': {
+      const rule = customRule.trim().replace(/^RRULE:/i, '');
+      return rule || undefined;
+    }
+    default:
+      return undefined;
+  }
+}
 
 function NewEventForm() {
   const router = useRouter();
@@ -29,6 +56,9 @@ function NewEventForm() {
   const [loading, setLoading] = React.useState(false);
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [mode, setMode] = React.useState<'IN_PERSON' | 'ONLINE' | 'HYBRID'>('IN_PERSON');
+  const [recurrenceKind, setRecurrenceKind] = React.useState<RecurrenceKind>('none');
+  const [recurrenceCount, setRecurrenceCount] = React.useState(8);
+  const [customRule, setCustomRule] = React.useState('FREQ=WEEKLY;INTERVAL=2;COUNT=6');
 
   React.useEffect(() => {
     if (hydrated && !user) router.replace('/login?next=/events/new');
@@ -47,6 +77,7 @@ function NewEventForm() {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const groupId = String(form.get('groupId'));
+    const recurrenceRule = buildRecurrenceRule(recurrenceKind, recurrenceCount, customRule);
     const values = {
       title: String(form.get('title')),
       description: String(form.get('description')),
@@ -57,7 +88,7 @@ function NewEventForm() {
       startTime: String(form.get('startTime')),
       endTime: String(form.get('endTime')),
       capacity: form.get('capacity') ? Number(form.get('capacity')) : undefined,
-      recurrenceRule: String(form.get('recurrenceRule') || '') || undefined,
+      recurrenceRule,
     };
 
     const parsed = createEventSchema.safeParse(values);
@@ -69,6 +100,10 @@ function NewEventForm() {
     }
     if (!groupId) {
       setErrors({ groupId: 'Pick a community' });
+      return;
+    }
+    if (recurrenceKind === 'custom' && !recurrenceRule) {
+      setErrors({ recurrenceRule: 'Enter a custom recurrence rule' });
       return;
     }
     setErrors({});
@@ -85,7 +120,9 @@ function NewEventForm() {
           endTime: new Date(parsed.data.endTime).toISOString(),
         }),
       });
-      toast.success('Event published!');
+      toast.success(
+        recurrenceRule ? 'Recurring event published!' : 'Event published!',
+      );
       router.push(`/events/${event.id}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not create the event');
@@ -190,32 +227,75 @@ function NewEventForm() {
             </div>
           </div>
 
-          <div className="grid gap-5 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="capacity">Capacity (optional)</Label>
+            <Input
+              id="capacity"
+              name="capacity"
+              type="number"
+              min={1}
+              placeholder="Unlimited"
+              error={errors.capacity}
+            />
+            <p className="mt-1.5 text-[13px] text-[var(--color-ink-tertiary)]">
+              When full, additional RSVPs join the waitlist automatically.
+            </p>
+          </div>
+
+          <fieldset className="space-y-3 rounded-[var(--radius-lg)] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-4">
+            <legend className="px-1 text-[13px] font-semibold uppercase tracking-wide text-[var(--color-ink-secondary)]">
+              Recurrence
+            </legend>
             <div>
-              <Label htmlFor="capacity">Capacity (optional)</Label>
-              <Input
-                id="capacity"
-                name="capacity"
-                type="number"
-                min={1}
-                placeholder="Unlimited"
-                error={errors.capacity}
-              />
-              <p className="mt-1.5 text-[13px] text-[var(--color-ink-tertiary)]">
-                When full, additional RSVPs join the waitlist automatically.
-              </p>
-            </div>
-            <div>
-              <Label htmlFor="recurrenceRule">Repeats</Label>
-              <Select id="recurrenceRule" name="recurrenceRule" defaultValue="">
-                {RECURRENCE_PRESETS.map((p) => (
+              <Label htmlFor="recurrenceKind">Repeats</Label>
+              <Select
+                id="recurrenceKind"
+                value={recurrenceKind}
+                onChange={(e) => setRecurrenceKind(e.target.value as RecurrenceKind)}
+              >
+                {RECURRENCE_KINDS.map((p) => (
                   <option key={p.value} value={p.value}>
                     {p.label}
                   </option>
                 ))}
               </Select>
             </div>
-          </div>
+
+            {recurrenceKind !== 'none' && recurrenceKind !== 'custom' && (
+              <div>
+                <Label htmlFor="recurrenceCount">Number of occurrences</Label>
+                <Input
+                  id="recurrenceCount"
+                  type="number"
+                  min={2}
+                  max={MAX_OCCURRENCES}
+                  value={recurrenceCount}
+                  onChange={(e) => setRecurrenceCount(Number(e.target.value) || 2)}
+                />
+                <p className="mt-1.5 text-[13px] text-[var(--color-ink-tertiary)]">
+                  Creates up to {MAX_OCCURRENCES} dated occurrences (about 6 months max).
+                </p>
+              </div>
+            )}
+
+            {recurrenceKind === 'custom' && (
+              <div>
+                <Label htmlFor="customRule">Custom RRULE</Label>
+                <Input
+                  id="customRule"
+                  value={customRule}
+                  onChange={(e) => setCustomRule(e.target.value)}
+                  placeholder="FREQ=WEEKLY;BYDAY=MO,WE;COUNT=10"
+                  error={errors.recurrenceRule}
+                />
+                <p className="mt-1.5 text-[13px] text-[var(--color-ink-tertiary)]">
+                  iCalendar RRULE without the <code>RRULE:</code> prefix. Examples:{' '}
+                  <code>FREQ=DAILY;COUNT=14</code>, <code>FREQ=WEEKLY;BYDAY=TU,TH;COUNT=8</code>,{' '}
+                  <code>FREQ=MONTHLY;INTERVAL=2;COUNT=6</code>.
+                </p>
+              </div>
+            )}
+          </fieldset>
 
           <div className="flex gap-3 pt-2">
             <Button type="submit" loading={loading} size="lg">

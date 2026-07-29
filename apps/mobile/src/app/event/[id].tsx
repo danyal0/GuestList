@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,6 +7,7 @@ import * as Haptics from 'expo-haptics';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { ErrorState } from '@/components/ui/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
 import { absoluteUrl, api } from '@/lib/api';
@@ -28,6 +29,7 @@ export default function EventScreen() {
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
   const [notice, setNotice] = React.useState<string | null>(null);
+  const [cancelScope, setCancelScope] = React.useState<'one' | 'series'>('one');
 
   const event = useQuery({
     queryKey: ['event', id],
@@ -58,11 +60,27 @@ export default function EventScreen() {
         data.waitlisted
           ? "This event is full — you're on the waitlist."
           : data.rsvp.status === 'GOING'
-            ? "You're going! 🎉"
+            ? "You're going!"
             : null,
       );
       void queryClient.invalidateQueries({ queryKey: ['event', id] });
       void queryClient.invalidateQueries({ queryKey: ['events-mine'] });
+    },
+  });
+
+  const cancelEvent = useMutation({
+    mutationFn: (scope: 'one' | 'series') =>
+      api(`/events/${id}?scope=${scope}`, { method: 'DELETE' }),
+    onSuccess: (_data, scope) => {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+      setNotice(scope === 'series' ? 'Series cancelled. Attendees were notified.' : 'Event cancelled. Attendees were notified.');
+      void queryClient.invalidateQueries({ queryKey: ['event', id] });
+      void queryClient.invalidateQueries({ queryKey: ['events'] });
+      void queryClient.invalidateQueries({ queryKey: ['events-mine'] });
+      void queryClient.invalidateQueries({ queryKey: ['events-cancelled'] });
+    },
+    onError: (error) => {
+      setNotice(error instanceof Error ? error.message : 'Could not cancel the event');
     },
   });
 
@@ -83,6 +101,9 @@ export default function EventScreen() {
   const started = new Date(e.startTime) < new Date();
   const closed =
     e.status !== 'PUBLISHED' || started || (e.rsvpDeadline ? new Date(e.rsvpDeadline) < new Date() : false);
+  const isHost = Boolean(user && user.id === e.host.id);
+  const isRecurring = Boolean(e.isRecurring || e.recurrenceRule || e.parentEventId);
+  const cancelled = e.status === 'CANCELLED';
 
   const handleRsvp = (status: RsvpStatus) => {
     if (!user) {
@@ -90,6 +111,23 @@ export default function EventScreen() {
       return;
     }
     rsvp.mutate(status);
+  };
+
+  const confirmCancel = (scope: 'one' | 'series') => {
+    const message =
+      scope === 'series'
+        ? 'Cancel the entire series? Attendees will be notified.'
+        : isRecurring
+          ? 'Cancel only this occurrence? Other dates stay published.'
+          : 'Cancel this event? Attendees will be notified.';
+    Alert.alert('Cancel event', message, [
+      { text: 'Keep event', style: 'cancel' },
+      {
+        text: scope === 'series' ? 'Cancel series' : 'Cancel event',
+        style: 'destructive',
+        onPress: () => cancelEvent.mutate(scope),
+      },
+    ]);
   };
 
   return (
@@ -118,7 +156,8 @@ export default function EventScreen() {
               {e.title}
             </Text>
             <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-              {e.status === 'CANCELLED' && <Badge label="Cancelled" tone="danger" />}
+              {cancelled && <Badge label="Cancelled" tone="danger" />}
+              {isRecurring && !cancelled && <Badge label="Recurring" tone="accent" />}
               {e.mode === 'ONLINE' && <Badge label="Online" tone="accent" />}
               {e.mode === 'HYBRID' && <Badge label="Hybrid" tone="accent" />}
               {current === 'WAITLISTED' && <Badge label="You're waitlisted" tone="warning" />}
@@ -138,10 +177,10 @@ export default function EventScreen() {
           >
             <FactRow icon="time-outline" colors={colors}>
               {formatDate(e.startTime)} · {formatTime(e.startTime)} – {formatTime(e.endTime)}
-              {e.status === 'CANCELLED' ? ' · Cancelled' : ''}
-              {e.previousStartTime && e.status !== 'CANCELLED' ? ' · Rescheduled' : ''}
+              {cancelled ? ' · Cancelled' : ''}
+              {e.previousStartTime && !cancelled ? ' · Rescheduled' : ''}
             </FactRow>
-            {e.previousStartTime && e.status !== 'CANCELLED' ? (
+            {e.previousStartTime && !cancelled ? (
               <Text
                 style={{
                   fontSize: 13,
@@ -171,13 +210,18 @@ export default function EventScreen() {
                 : ''}
               {e.waitlistCount > 0 && ` · ${e.waitlistCount} waitlisted`}
             </FactRow>
+            {isRecurring && (
+              <FactRow icon="repeat-outline" colors={colors}>
+                {e.recurrenceRule ? `Repeats · ${e.recurrenceRule}` : 'Part of a recurring series'}
+              </FactRow>
+            )}
           </View>
 
           {/* RSVP */}
           {closed ? (
             <View style={{ backgroundColor: colors.surface3, borderRadius: radius.md, padding: spacing.lg }}>
               <Text style={{ textAlign: 'center', fontSize: 14, fontWeight: '600', color: colors.inkSecondary }}>
-                {e.status === 'CANCELLED'
+                {cancelled
                   ? 'This event was cancelled'
                   : started
                     ? 'This event has started'
@@ -230,6 +274,89 @@ export default function EventScreen() {
             </Text>
           )}
 
+          {isHost && !cancelled ? (
+            <View
+              style={{
+                borderWidth: 1,
+                borderColor: colors.danger,
+                borderRadius: radius.lg,
+                padding: spacing.lg,
+                gap: spacing.md,
+                backgroundColor: colors.surface,
+              }}
+            >
+              <Text style={{ fontSize: 17, fontWeight: '700', color: colors.danger }}>Host controls</Text>
+              <Text style={{ fontSize: 14, color: colors.inkSecondary, lineHeight: 20 }}>
+                {isRecurring
+                  ? 'Cancel just this date, or the entire series. Attendees are notified either way.'
+                  : 'Cancelling removes this event from upcoming lists and notifies everyone who RSVP’d.'}
+              </Text>
+              {isRecurring ? (
+                <View style={{ gap: 8 }}>
+                  <Pressable
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: cancelScope === 'one' }}
+                    onPress={() => setCancelScope('one')}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: 12,
+                      borderRadius: radius.md,
+                      borderWidth: 1,
+                      borderColor: cancelScope === 'one' ? colors.accent : colors.hairline,
+                    }}
+                  >
+                    <Ionicons
+                      name={cancelScope === 'one' ? 'radio-button-on' : 'radio-button-off'}
+                      size={18}
+                      color={cancelScope === 'one' ? colors.accent : colors.inkTertiary}
+                    />
+                    <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: colors.ink }}>
+                      Only this occurrence
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: cancelScope === 'series' }}
+                    onPress={() => setCancelScope('series')}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: 12,
+                      borderRadius: radius.md,
+                      borderWidth: 1,
+                      borderColor: cancelScope === 'series' ? colors.accent : colors.hairline,
+                    }}
+                  >
+                    <Ionicons
+                      name={cancelScope === 'series' ? 'radio-button-on' : 'radio-button-off'}
+                      size={18}
+                      color={cancelScope === 'series' ? colors.accent : colors.inkTertiary}
+                    />
+                    <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: colors.ink }}>
+                      Entire series
+                    </Text>
+                  </Pressable>
+                  <Button
+                    title={cancelScope === 'series' ? 'Cancel series' : 'Cancel this occurrence'}
+                    variant="destructive"
+                    loading={cancelEvent.isPending}
+                    onPress={() => confirmCancel(cancelScope)}
+                  />
+                </View>
+              ) : (
+                <Button
+                  title="Cancel event"
+                  variant="destructive"
+                  loading={cancelEvent.isPending}
+                  onPress={() => confirmCancel('one')}
+                />
+              )}
+            </View>
+          ) : null}
+
           {/* About */}
           <View style={{ gap: 6 }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: colors.ink }}>About this event</Text>
@@ -247,7 +374,7 @@ export default function EventScreen() {
 
           {e.attendeePreview.length > 0 && (
             <View style={{ gap: spacing.md }}>
-              <Text style={{ fontSize: 18, fontWeight: '700', color: colors.ink }}>Who&apos;s coming</Text>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: colors.ink }}>Who's coming</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }}>
                 {e.attendeePreview.map((attendee) => (
                   <Pressable

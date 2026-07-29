@@ -15,7 +15,12 @@ import { ApiTags } from '@nestjs/swagger';
 import { RsvpStatus } from '@prisma/client';
 import { IsEnum, IsOptional } from 'class-validator';
 import { EventsService } from './events.service';
-import { CreateEventDto, ListEventsDto, UpdateEventDto } from './dto/event.dto';
+import {
+  CancelEventQueryDto,
+  CreateEventDto,
+  ListEventsDto,
+  UpdateEventDto,
+} from './dto/event.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { OptionalAuth } from '../common/decorators/public.decorator';
 import { AuthUser } from '../common/types/auth-user';
@@ -64,8 +69,12 @@ export class EventsController {
   }
 
   @Delete(':id')
-  async cancel(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    await this.eventsService.cancel(id, user.id);
+  async cancel(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query() query: CancelEventQueryDto,
+  ) {
+    await this.eventsService.cancel(id, user.id, query.scope ?? 'one');
     return { success: true };
   }
 

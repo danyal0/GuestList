@@ -246,3 +246,10 @@ export class ListEventsDto extends PaginationDto {
   @IsEnum(EventStatus)
   status?: EventStatus;
 }
+
+/** Cancel a single occurrence (`one`) or the whole recurring series (`series`). */
+export class CancelEventQueryDto {
+  @IsOptional()
+  @IsIn(['one', 'series'])
+  scope?: 'one' | 'series' = 'one';
+}
