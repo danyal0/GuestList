@@ -98,8 +98,7 @@ describe('ProfilesService friendships', () => {
           where: {
             addresseeId: 'usr_b',
             requesterId: 'usr_a',
-            OR: [{ status: FriendshipStatus.PENDING }, { status: null }],
-            respondedAt: null,
+            status: FriendshipStatus.PENDING,
           },
         }),
       );
