@@ -8,11 +8,16 @@ import {
   GroupMemberStatus,
   GroupPrivacy,
 } from '@prisma/client';
-import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { slugify } from '../common/utils/slug';
 import { resolveCatalogVenue } from '../whatsapp/whatsapp-event-enrich';
+import {
+  buildImportKey,
+  extractMeetupEventId,
+  findBestImportMatch,
+  type ImportMatchCandidate,
+} from './event-import-match';
 
 export type ImportEventRow = {
   name: string;
@@ -232,26 +237,23 @@ export class EventImportService {
         place.capacity ??
         (attendees > 0 ? Math.min(500, Math.max(12, Math.round(attendees * 1.15))) : 40);
 
-      const importKey = createHash('sha1')
-        .update(row.link || `${slug}:${title}:${row.dateTime || start.toISOString()}`)
-        .digest('hex')
-        .slice(0, 16);
+      const importKey = buildImportKey({
+        link: row.link,
+        slug,
+        title,
+        dateTime: row.dateTime,
+        start,
+      });
       const description =
         row.description?.trim() ||
         this.buildDescription(row, place, community.name);
 
-      const existing = await this.prisma.event.findFirst({
-        where: {
-          OR: [
-            { whatsappMessageId: `import:${importKey}` },
-            {
-              title,
-              groupId: community.id,
-              startTime: start,
-            },
-          ],
-        },
-        select: { id: true },
+      const existing = await this.findExistingImportEvent({
+        title,
+        start,
+        link: row.link,
+        groupId: community.id,
+        importKey,
       });
 
       const data = {
@@ -406,6 +408,70 @@ export class EventImportService {
       description: pick('description'),
       category: pick('category'),
     };
+  }
+
+  private async findExistingImportEvent(input: {
+    title: string;
+    start: Date;
+    link?: string;
+    groupId: string;
+    importKey: string;
+  }): Promise<{ id: string } | null> {
+    const exact = await this.prisma.event.findFirst({
+      where: {
+        OR: [
+          { whatsappMessageId: `import:${input.importKey}` },
+          {
+            title: input.title,
+            groupId: input.groupId,
+            startTime: input.start,
+          },
+        ],
+      },
+      select: { id: true },
+    });
+    if (exact) return exact;
+
+    const meetupId = extractMeetupEventId(input.link);
+    const windowMs = 48 * 3600_000;
+    const fuzzyWhere = {
+      OR: [
+        {
+          startTime: {
+            gte: new Date(input.start.getTime() - windowMs),
+            lte: new Date(input.start.getTime() + windowMs),
+          },
+        },
+        ...(meetupId
+          ? [
+              { description: { contains: meetupId } },
+              { whatsappMessageId: `import:${meetupId}` },
+            ]
+          : []),
+      ],
+    };
+
+    const candidates = await this.prisma.event.findMany({
+      where: fuzzyWhere,
+      select: {
+        id: true,
+        title: true,
+        startTime: true,
+        groupId: true,
+        description: true,
+        whatsappMessageId: true,
+      },
+      take: 80,
+    });
+
+    const match = findBestImportMatch(candidates as ImportMatchCandidate[], {
+      title: input.title,
+      start: input.start,
+      link: input.link,
+      groupId: input.groupId,
+      importKey: input.importKey,
+    });
+    return match ? { id: match.id } : null;
   }
 
   private meetupSlug(link?: string): string | null {
