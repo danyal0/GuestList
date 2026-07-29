@@ -2,6 +2,7 @@ import type { PrismaService } from '../prisma/prisma.service';
 import {
   isPlausiblePhone,
   phoneMatchWhere,
+  phonesMatch,
   preferCanonicalPhone,
 } from '../common/utils/phone';
 import { digitsOnly } from './whatsapp-bot.guard';
@@ -101,8 +102,9 @@ export async function mergeWhatsappUsers(
     },
   });
 
-  const phone =
-    extras.phone || survivor.phone || loser.phone || null;
+  // Prefer an already-saved phone (signup/form) over a newly observed WhatsApp number.
+  const rawPhone = survivor.phone || extras.phone || loser.phone || null;
+  const phone = rawPhone ? preferCanonicalPhone(rawPhone) : null;
   const lid = extras.lid || survivor.whatsappLid || loser.whatsappLid || null;
   let name = survivor.name;
   const nameHint = extras.name?.trim();
@@ -135,6 +137,53 @@ export async function mergeWhatsappUsers(
   });
 
   return updated;
+}
+
+/**
+ * Resolve a name-only WhatsApp attendee so a later group message can attach LID/phone.
+ * Exact full-name match first; then first-token match for "Khatera" vs "Khatera J.".
+ */
+async function findNamedPlaceholderForSender(
+  prisma: PrismaService,
+  rawName: string,
+): Promise<UserRow | null> {
+  const name = rawName.trim();
+  if (name.length < 2 || name.length > 80) return null;
+  const firstToken = name.split(/\s+/)[0] ?? name;
+
+  const rows = await prisma.user.findMany({
+    where: {
+      deletedAt: null,
+      passwordHash: null,
+      phone: null,
+      whatsappLid: null,
+      OR: [
+        { name: { equals: name, mode: 'insensitive' } },
+        ...(firstToken.length >= 3
+          ? [
+              { name: { equals: firstToken, mode: 'insensitive' as const } },
+              {
+                name: {
+                  startsWith: `${firstToken} `,
+                  mode: 'insensitive' as const,
+                },
+              },
+            ]
+          : []),
+      ],
+    },
+    select: identitySelect,
+    take: 10,
+  });
+
+  const placeholders = rows.filter((u) => isNamedPlaceholder(u));
+  if (placeholders.length === 0) return null;
+
+  // Prefer exact full-name match when multiple placeholders share a first token.
+  const exact = placeholders.find(
+    (u) => u.name.trim().toLowerCase() === name.toLowerCase(),
+  );
+  return exact ?? placeholders[0]!;
 }
 
 /**
@@ -201,6 +250,13 @@ export async function findOrLinkWhatsappUser(
 
   let user: UserRow | null = byLid || byPhone;
 
+  // Name-only WhatsApp attendee later messages in the group → attach LID/phone
+  // onto that placeholder instead of creating a duplicate bridge row.
+  if (!user && nameHint && (phone || lid)) {
+    const byName = await findNamedPlaceholderForSender(prisma, nameHint);
+    if (byName) user = byName;
+  }
+
   if (!user) {
     if (!autoCreate || (!phone && !lid)) return null;
 
@@ -229,7 +285,18 @@ export async function findOrLinkWhatsappUser(
   const canonicalPhone = phone ? preferCanonicalPhone(phone) : null;
   const patch: { whatsappLid?: string; phone?: string; name?: string } = {};
   if (lid && user.whatsappLid !== lid) patch.whatsappLid = lid;
-  if (canonicalPhone && user.phone !== canonicalPhone) patch.phone = canonicalPhone;
+  // Fill missing phone from WhatsApp; never overwrite a phone already saved
+  // (signup/form). Same handset in another format may be canonicalized.
+  if (canonicalPhone) {
+    if (!user.phone) {
+      patch.phone = canonicalPhone;
+    } else if (
+      phonesMatch(user.phone, canonicalPhone) &&
+      user.phone !== canonicalPhone
+    ) {
+      patch.phone = preferCanonicalPhone(user.phone);
+    }
+  }
   if (nameHint && nameHint.length >= 2 && nameHint.length <= 80 && user.name !== nameHint) {
     // Refresh display name for bridge / placeholder rows; never overwrite a password account's chosen name.
     const canUpdateName =
