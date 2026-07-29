@@ -95,6 +95,10 @@ export interface EventDetail extends EventSummary {
   allowWaitlist: boolean;
   rsvpDeadline: string | null;
   recurrenceRule: string | null;
+  parentEventId?: string | null;
+  isRecurring?: boolean;
+  seriesId?: string | null;
+  parentEvent?: { id: string; title: string; recurrenceRule?: string | null } | null;
   interestedCount: number;
   waitlistCount: number;
   viewerRsvp: { status: RsvpStatus } | null;

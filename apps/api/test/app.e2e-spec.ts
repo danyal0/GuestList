@@ -406,6 +406,128 @@ describe('MKE Plays API (e2e)', () => {
         .send({ status: 'GOING' })
         .expect(400);
     });
+
+    it('creates a daily recurring series and lists each occurrence', async () => {
+      const start = new Date(Date.now() + 3 * 86_400_000);
+      start.setUTCHours(18, 0, 0, 0);
+      const end = new Date(start.getTime() + 90 * 60_000);
+      const res = await request(http)
+        .post('/api/v1/events')
+        .set(auth(alice))
+        .send({
+          groupId,
+          title: 'Daily Standup Series',
+          description: 'Recurring daily check-in for the e2e guild.',
+          mode: 'ONLINE',
+          onlineUrl: 'https://meet.example.com/standup',
+          timezone: 'UTC',
+          startTime: start.toISOString(),
+          endTime: end.toISOString(),
+          recurrenceRule: 'FREQ=DAILY;COUNT=4',
+        })
+        .expect(201);
+
+      expect(res.body.recurrenceRule).toBe('FREQ=DAILY;COUNT=4');
+      const detail = await request(http)
+        .get(`/api/v1/events/${res.body.id}`)
+        .set(auth(alice))
+        .expect(200);
+      expect(detail.body.isRecurring).toBe(true);
+      expect(detail.body.occurrences.length).toBeGreaterThan(0);
+
+      const browse = await request(http)
+        .get(`/api/v1/events?groupId=${groupId}&from=${start.toISOString()}`)
+        .expect(200);
+      const seriesCards = browse.body.items.filter(
+        (e: { title: string }) => e.title === 'Daily Standup Series',
+      );
+      expect(seriesCards.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('cancels only one occurrence when scope=one', async () => {
+      const start = new Date(Date.now() + 10 * 86_400_000);
+      start.setUTCHours(17, 0, 0, 0);
+      const end = new Date(start.getTime() + 60 * 60_000);
+      const created = await request(http)
+        .post('/api/v1/events')
+        .set(auth(alice))
+        .send({
+          groupId,
+          title: 'Weekly Office Hours',
+          description: 'Weekly help session used to test single-occurrence cancel.',
+          mode: 'ONLINE',
+          onlineUrl: 'https://meet.example.com/hours',
+          timezone: 'UTC',
+          startTime: start.toISOString(),
+          endTime: end.toISOString(),
+          recurrenceRule: 'FREQ=WEEKLY;COUNT=3',
+        })
+        .expect(201);
+
+      const detail = await request(http)
+        .get(`/api/v1/events/${created.body.id}`)
+        .set(auth(alice))
+        .expect(200);
+      const childId = detail.body.occurrences[0]?.id as string;
+      expect(childId).toBeTruthy();
+
+      await request(http)
+        .delete(`/api/v1/events/${childId}?scope=one`)
+        .set(auth(alice))
+        .expect(200);
+
+      const cancelledChild = await request(http)
+        .get(`/api/v1/events/${childId}`)
+        .set(auth(alice))
+        .expect(200);
+      expect(cancelledChild.body.status).toBe('CANCELLED');
+
+      const parent = await request(http)
+        .get(`/api/v1/events/${created.body.id}`)
+        .set(auth(alice))
+        .expect(200);
+      expect(parent.body.status).toBe('PUBLISHED');
+    });
+
+    it('cancels the whole series when scope=series', async () => {
+      const start = new Date(Date.now() + 14 * 86_400_000);
+      start.setUTCHours(16, 0, 0, 0);
+      const end = new Date(start.getTime() + 60 * 60_000);
+      const created = await request(http)
+        .post('/api/v1/events')
+        .set(auth(alice))
+        .send({
+          groupId,
+          title: 'Monthly Retro Series',
+          description: 'Monthly retro used to test series-wide cancel.',
+          mode: 'ONLINE',
+          onlineUrl: 'https://meet.example.com/retro',
+          timezone: 'UTC',
+          startTime: start.toISOString(),
+          endTime: end.toISOString(),
+          recurrenceRule: 'FREQ=MONTHLY;COUNT=3',
+        })
+        .expect(201);
+
+      const detail = await request(http)
+        .get(`/api/v1/events/${created.body.id}`)
+        .set(auth(alice))
+        .expect(200);
+      const siblingIds = [
+        created.body.id as string,
+        ...detail.body.occurrences.map((o: { id: string }) => o.id),
+      ];
+
+      await request(http)
+        .delete(`/api/v1/events/${created.body.id}?scope=series`)
+        .set(auth(alice))
+        .expect(200);
+
+      for (const id of siblingIds) {
+        const row = await request(http).get(`/api/v1/events/${id}`).set(auth(alice)).expect(200);
+        expect(row.body.status).toBe('CANCELLED');
+      }
+    });
   });
 
   describe('Search & discovery', () => {

@@ -60,12 +60,12 @@ Base URL: `/api/v1` · Interactive Swagger docs at **`/api/docs`** (non-producti
 
 | Method | Path | Description |
 | --- | --- | --- |
-| POST | `/events` | Create (Moderator+ in the community); RRULE generates occurrences |
+| POST | `/events` | Create (Moderator+ in the community); RRULE generates daily/weekly/monthly/custom occurrences |
 | GET | `/events` | Browse: `groupId`, `mode`, `from/to`, `q`, geo filters, `sort=soonest\|popular` |
 | GET | `/events/mine` | My upcoming RSVPs |
 | GET | `/events/:id` | Detail + viewer RSVP + attendee preview + occurrences |
 | PATCH | `/events/:id` | Host/Admin+ (notifies attendees) |
-| DELETE | `/events/:id` | Cancel (notifies attendees) |
+| DELETE | `/events/:id` | Cancel (`?scope=one\|series`, default `one`); notifies attendees |
 | GET | `/events/:id/attendees` | Attendee management (host view includes waitlist order) |
 | GET | `/events/:id/calendar.ics` | RFC 5545 export |
 | PUT | `/events/:id/rsvp` | Set `GOING`/`INTERESTED`/`DECLINED` → `{ rsvp, waitlisted }` |

@@ -131,9 +131,10 @@ export class EventsService {
         ? new Date(Date.now() - 60 * 24 * 60 * 60 * 1000)
         : new Date();
 
+    // Materialized occurrences (parent + children) each appear as their own card so
+    // upcoming dates stay discoverable after the series start, and hosts can cancel one.
     const where: Prisma.EventWhereInput = {
       status,
-      parentEventId: null,
       group: { deletedAt: null, privacy: { not: GroupPrivacy.HIDDEN } },
       visibility: EventVisibility.PUBLIC,
       ...(dto.groupId ? { groupId: dto.groupId } : {}),
@@ -192,7 +193,7 @@ export class EventsService {
           select: { id: true, slug: true, name: true, coverImage: true, category: true, privacy: true },
         },
         host: { select: publicUserSelect },
-        parentEvent: { select: { id: true, title: true } },
+        parentEvent: { select: { id: true, title: true, recurrenceRule: true } },
         occurrences: {
           where: { startTime: { gte: new Date() }, status: EventStatus.PUBLISHED },
           orderBy: { startTime: 'asc' },
@@ -204,6 +205,23 @@ export class EventsService {
     if (!event) throw new NotFoundException('Event not found');
 
     await this.assertViewable(event.groupId, event.visibility, event.group.privacy, viewerId);
+
+    const seriesRootId = event.parentEventId ?? (event.recurrenceRule ? event.id : null);
+    let occurrences = event.occurrences;
+    // Child occurrences don't own the RRULE — surface upcoming siblings from the series root.
+    if (event.parentEventId && occurrences.length === 0) {
+      occurrences = await this.prisma.event.findMany({
+        where: {
+          OR: [{ id: event.parentEventId }, { parentEventId: event.parentEventId }],
+          id: { not: event.id },
+          startTime: { gte: new Date() },
+          status: EventStatus.PUBLISHED,
+        },
+        orderBy: { startTime: 'asc' },
+        take: 5,
+        select: { id: true, startTime: true, endTime: true },
+      });
+    }
 
     const [goingCount, interestedCount, waitlistCount, viewerRsvp, attendees] = await Promise.all([
       this.prisma.rsvp.count({ where: { eventId, status: RsvpStatus.GOING } }),
@@ -223,6 +241,10 @@ export class EventsService {
     const capacity = normalizeCapacity(event.capacity);
     return {
       ...event,
+      occurrences,
+      recurrenceRule: event.recurrenceRule ?? event.parentEvent?.recurrenceRule ?? null,
+      isRecurring: Boolean(seriesRootId),
+      seriesId: seriesRootId,
       capacity,
       goingCount,
       interestedCount,
@@ -256,27 +278,70 @@ export class EventsService {
     return updated;
   }
 
-  async cancel(eventId: string, userId: string): Promise<void> {
+  /**
+   * Cancel one occurrence (`scope=one`, default) or the whole recurring series (`scope=series`).
+   * Series cancel covers the series root plus every non-completed sibling occurrence.
+   */
+  async cancel(
+    eventId: string,
+    userId: string,
+    scope: 'one' | 'series' = 'one',
+  ): Promise<void> {
     const event = await this.requireManageable(eventId, userId);
     if (event.status === EventStatus.CANCELLED) {
       throw new BadRequestException('Event is already cancelled');
     }
 
-    const cancelled = await this.prisma.event.update({
-      where: { id: eventId },
+    const ids =
+      scope === 'series' ? await this.seriesEventIds(event) : [event.id];
+
+    const cancellable = await this.prisma.event.findMany({
+      where: {
+        id: { in: ids },
+        status: { in: [EventStatus.PUBLISHED, EventStatus.DRAFT] },
+      },
+    });
+    if (cancellable.length === 0) {
+      throw new BadRequestException('Event is already cancelled');
+    }
+
+    await this.prisma.event.updateMany({
+      where: { id: { in: cancellable.map((e) => e.id) } },
       data: { status: EventStatus.CANCELLED },
     });
 
     await this.auditService.log({
       actorId: userId,
-      action: 'event.cancel',
+      action: scope === 'series' ? 'event.cancel.series' : 'event.cancel',
       targetType: 'EVENT',
       targetId: eventId,
+      metadata: { scope, cancelledIds: cancellable.map((e) => e.id) },
     });
-    await this.notifyAttendees(cancelled, NotificationType.EVENT_CANCELLED, {
-      message: `"${cancelled.title}" has been cancelled`,
+
+    for (const cancelled of cancellable) {
+      await this.notifyAttendees(cancelled, NotificationType.EVENT_CANCELLED, {
+        message:
+          scope === 'series'
+            ? `"${cancelled.title}" series has been cancelled`
+            : `"${cancelled.title}" has been cancelled`,
+      });
+      this.eventEmitter.emit('realtime.event.updated', {
+        eventId: cancelled.id,
+        event: { ...cancelled, status: EventStatus.CANCELLED },
+      });
+    }
+  }
+
+  /** Resolve every event id that belongs to the same recurrence series. */
+  private async seriesEventIds(event: Event): Promise<string[]> {
+    const rootId = event.parentEventId ?? event.id;
+    const siblings = await this.prisma.event.findMany({
+      where: {
+        OR: [{ id: rootId }, { parentEventId: rootId }],
+      },
+      select: { id: true },
     });
-    this.eventEmitter.emit('realtime.event.updated', { eventId, event: cancelled });
+    return siblings.map((s) => s.id);
   }
 
   async listAttendees(eventId: string, viewerId: string, status: RsvpStatus, page: number, limit: number) {

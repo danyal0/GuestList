@@ -37,6 +37,7 @@ export default function EventDetailPage() {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [cancelScope, setCancelScope] = React.useState<'one' | 'series'>('one');
 
   const event = useQuery({
     queryKey: ['event', id],
@@ -44,9 +45,14 @@ export default function EventDetailPage() {
   });
 
   const cancelEvent = useMutation({
-    mutationFn: () => api(`/events/${id}`, { method: 'DELETE' }),
-    onSuccess: () => {
-      toast.success('Event cancelled — attendees have been notified.');
+    mutationFn: (scope: 'one' | 'series') =>
+      api(`/events/${id}?scope=${scope}`, { method: 'DELETE' }),
+    onSuccess: (_data, scope) => {
+      toast.success(
+        scope === 'series'
+          ? 'Series cancelled — attendees have been notified.'
+          : 'Event cancelled — attendees have been notified.',
+      );
       setDeleteOpen(false);
       void queryClient.invalidateQueries({ queryKey: ['event', id] });
       void queryClient.invalidateQueries({ queryKey: ['home-events'] });
@@ -91,6 +97,7 @@ export default function EventDetailPage() {
   const cancelled = e.status === 'CANCELLED';
   const rescheduled = Boolean(e.previousStartTime || e.rescheduledAt) && !cancelled;
   const isHost = Boolean(user && user.id === e.host.id);
+  const isRecurring = Boolean(e.isRecurring || e.recurrenceRule || e.parentEventId);
   const mapsHref = googleMapsUrl({
     locationName: e.locationName,
     address: e.address,
@@ -130,6 +137,7 @@ export default function EventDetailPage() {
           </Link>
           {cancelled && <Badge variant="danger">Cancelled</Badge>}
           {rescheduled && <Badge variant="warning">Rescheduled</Badge>}
+          {isRecurring && !cancelled && <Badge>Recurring</Badge>}
         </div>
         <h1 className="mt-1 text-[30px] font-extrabold leading-tight tracking-tight">{e.title}</h1>
         <p className="mt-2 flex items-center gap-2 text-[14px] text-[var(--color-ink-secondary)]">
@@ -243,15 +251,38 @@ export default function EventDetailPage() {
             </p>
           </div>
         </div>
-        {e.recurrenceRule && (
+        {isRecurring && (
           <div className="flex items-start gap-3">
             <Repeat className="mt-0.5 h-5 w-5 text-[var(--color-accent)]" aria-hidden />
             <div>
               <p className="text-[15px] font-semibold">Recurring event</p>
-              {e.occurrences.length > 0 && (
+              {e.recurrenceRule && (
+                <p className="text-[13px] text-[var(--color-ink-tertiary)]">{e.recurrenceRule}</p>
+              )}
+              {e.parentEvent && (
                 <p className="text-[14px] text-[var(--color-ink-secondary)]">
-                  Next: {e.occurrences.slice(0, 2).map((o) => formatDate(o.startTime)).join(', ')}
+                  Part of{' '}
+                  <Link
+                    href={`/events/${e.parentEvent.id}`}
+                    className="font-semibold text-[var(--color-accent)] hover:underline"
+                  >
+                    {e.parentEvent.title}
+                  </Link>
                 </p>
+              )}
+              {e.occurrences.length > 0 && (
+                <ul className="mt-1 space-y-0.5 text-[14px] text-[var(--color-ink-secondary)]">
+                  {e.occurrences.slice(0, 3).map((o) => (
+                    <li key={o.id}>
+                      <Link
+                        href={`/events/${o.id}`}
+                        className="hover:text-[var(--color-accent)] hover:underline"
+                      >
+                        {formatDate(o.startTime)} · {formatTime(o.startTime)}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           </div>
@@ -272,9 +303,17 @@ export default function EventDetailPage() {
         <section className="rounded-[var(--radius-lg)] border border-[var(--color-danger)]/30 p-5">
           <h2 className="text-[17px] font-bold text-[var(--color-danger)]">Host controls</h2>
           <p className="mt-1 text-[14px] text-[var(--color-ink-secondary)]">
-            Cancelling removes this event from upcoming lists and notifies everyone who RSVP’d.
+            {isRecurring
+              ? 'Cancel just this date, or the entire series. Attendees are notified either way.'
+              : 'Cancelling removes this event from upcoming lists and notifies everyone who RSVP’d.'}
           </p>
-          <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+          <Dialog
+            open={deleteOpen}
+            onOpenChange={(open) => {
+              setDeleteOpen(open);
+              if (open) setCancelScope('one');
+            }}
+          >
             <DialogTrigger asChild>
               <Button variant="destructive" className="mt-4">
                 <Trash2 className="h-4 w-4" aria-hidden /> Cancel event
@@ -282,16 +321,56 @@ export default function EventDetailPage() {
             </DialogTrigger>
             <DialogContent
               title="Cancel this event?"
-              description="Attendees will be notified. The event stays under Cancelled so people can still see what happened."
+              description={
+                isRecurring
+                  ? 'Choose whether to cancel only this occurrence or the whole series.'
+                  : 'Attendees will be notified. The event stays under Cancelled so people can still see what happened.'
+              }
             >
+              {isRecurring && (
+                <div className="mb-4 space-y-2" role="radiogroup" aria-label="Cancel scope">
+                  <label className="flex cursor-pointer items-start gap-3 rounded-[var(--radius-md)] border border-[var(--color-hairline)] p-3 has-[:checked]:border-[var(--color-accent)]">
+                    <input
+                      type="radio"
+                      name="cancelScope"
+                      value="one"
+                      checked={cancelScope === 'one'}
+                      onChange={() => setCancelScope('one')}
+                      className="mt-1"
+                    />
+                    <span>
+                      <span className="block text-[14px] font-semibold">Only this occurrence</span>
+                      <span className="text-[13px] text-[var(--color-ink-secondary)]">
+                        Other dates in the series stay published.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-[var(--radius-md)] border border-[var(--color-hairline)] p-3 has-[:checked]:border-[var(--color-accent)]">
+                    <input
+                      type="radio"
+                      name="cancelScope"
+                      value="series"
+                      checked={cancelScope === 'series'}
+                      onChange={() => setCancelScope('series')}
+                      className="mt-1"
+                    />
+                    <span>
+                      <span className="block text-[14px] font-semibold">Entire series</span>
+                      <span className="text-[13px] text-[var(--color-ink-secondary)]">
+                        Cancels every remaining occurrence.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              )}
               <div className="flex gap-3">
                 <Button
                   variant="destructive"
                   className="flex-1"
                   loading={cancelEvent.isPending}
-                  onClick={() => cancelEvent.mutate()}
+                  onClick={() => cancelEvent.mutate(isRecurring ? cancelScope : 'one')}
                 >
-                  Yes, cancel it
+                  {isRecurring && cancelScope === 'series' ? 'Yes, cancel series' : 'Yes, cancel it'}
                 </Button>
                 <Button
                   variant="secondary"

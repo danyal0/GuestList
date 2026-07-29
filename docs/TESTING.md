@@ -26,6 +26,7 @@ All suites pass locally and run in CI (see `.github/workflows/ci.yml`).
 
 **Events & RSVP**
 - ✅ create, RSVP GOING/INTERESTED/DECLINED, ICS export, cancellation
+- ✅ recurring create (daily/weekly/monthly RRULE), cancel one occurrence (`scope=one`), cancel series (`scope=series`)
 - ❌ end-before-start (400), plain members creating events (403), RSVP after start/deadline/cancellation, requesting WAITLISTED directly
 - ⚠️ capacity 1 → second RSVP waitlisted; decline → **FIFO waitlist promotion** + notification; self-exclusion from capacity counts when switching status
 
