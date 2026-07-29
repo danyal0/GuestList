@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,7 +10,10 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags } from '@nestjs/swagger';
 import { GroupMemberRole, UserRole } from '@prisma/client';
 import { Transform } from 'class-transformer';
@@ -24,6 +28,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { AdminService } from './admin.service';
+import { EventImportService } from './event-import.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -74,6 +79,7 @@ export class AdminController {
   constructor(
     private readonly adminService: AdminService,
     private readonly analyticsService: AnalyticsService,
+    private readonly eventImportService: EventImportService,
   ) {}
 
   // ───────── Users ─────────
@@ -220,6 +226,26 @@ export class AdminController {
   @HttpCode(HttpStatus.OK)
   async bulkHardDeleteEvents(@CurrentUser() admin: AuthUser, @Body() dto: BulkIdsDto) {
     return this.adminService.bulkHardDeleteEvents(admin.id, dto.ids);
+  }
+
+  // ───────── Import ─────────
+
+  @Post('import/events')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024 } }))
+  async importEvents(
+    @CurrentUser() admin: AuthUser,
+    @UploadedFile() file?: Express.Multer.File,
+    @Query('includeRemote') includeRemote?: string,
+  ) {
+    if (!file?.buffer?.length) throw new BadRequestException('Choose a JSON or CSV file');
+    const name = file.originalname || 'upload.json';
+    if (!/\.(json|csv)$/i.test(name) && file.mimetype !== 'application/json' && file.mimetype !== 'text/csv') {
+      throw new BadRequestException('Only .json or .csv uploads are supported');
+    }
+    return this.eventImportService.importFromUpload(admin.id, file.buffer, name, {
+      includeRemote: includeRemote === '1' || includeRemote === 'true',
+    });
   }
 
   // ───────── Audit ─────────
