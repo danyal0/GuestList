@@ -68,9 +68,6 @@ function LoginForm() {
           error={errors.identifier}
           required
         />
-        <p className="mt-1.5 text-[12px] text-[var(--color-ink-tertiary)]">
-          Email still works for older accounts.
-        </p>
       </div>
       <div>
         <div className="flex items-baseline justify-between">
