@@ -71,20 +71,11 @@ export class ProfilesService {
     if (viewerId && viewerId !== profileId) {
       const friendship = await this.prisma.friendship.findFirst({
         where: {
-          AND: [
-            {
-              OR: [
-                { requesterId: viewerId, addresseeId: profileId },
-                { requesterId: profileId, addresseeId: viewerId },
-              ],
-            },
-            {
-              OR: [
-                { status: { in: [FriendshipStatus.PENDING, FriendshipStatus.ACCEPTED] } },
-                { status: null, respondedAt: null },
-              ],
-            },
+          OR: [
+            { requesterId: viewerId, addresseeId: profileId },
+            { requesterId: profileId, addresseeId: viewerId },
           ],
+          status: { in: [FriendshipStatus.PENDING, FriendshipStatus.ACCEPTED] },
         },
       });
       if (friendship) {
@@ -224,8 +215,7 @@ export class ProfilesService {
         where: {
           addresseeId: userId,
           requesterId: friendshipIdOrRequesterId,
-          OR: [{ status: FriendshipStatus.PENDING }, { status: null }],
-          respondedAt: null,
+          status: FriendshipStatus.PENDING,
         },
       });
     }
@@ -278,11 +268,7 @@ export class ProfilesService {
 
   async getPendingRequests(userId: string) {
     return this.prisma.friendship.findMany({
-      where: {
-        addresseeId: userId,
-        OR: [{ status: FriendshipStatus.PENDING }, { status: null }],
-        respondedAt: null,
-      },
+      where: { addresseeId: userId, status: FriendshipStatus.PENDING },
       include: { requester: { select: publicUserSelect } },
       orderBy: { createdAt: 'desc' },
     });
@@ -296,8 +282,7 @@ export class ProfilesService {
       where: {
         requesterId,
         addresseeId,
-        OR: [{ status: FriendshipStatus.PENDING }, { status: null }],
-        respondedAt: null,
+        status: FriendshipStatus.PENDING,
       },
     });
     if (!friendship) throw new NotFoundException('Friend request not found');
