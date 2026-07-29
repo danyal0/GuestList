@@ -3,8 +3,6 @@ import {
   buildAppleRecurrenceRule,
   combineDateAndTime,
   friendlyDayLabel,
-  type EndRepeatMode,
-  type RepeatFrequency,
 } from './recurrence';
 
 describe('Apple-style recurrence helpers', () => {
