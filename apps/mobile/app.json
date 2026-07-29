@@ -17,8 +17,8 @@
     "android": {
       "package": "com.mkeplays.app",
       "adaptiveIcon": {
-        "backgroundColor": "#0a84ff",
-        "foregroundImage": "./assets/images/icon.png"
+        "backgroundColor": "#000000",
+        "foregroundImage": "./assets/images/android-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": true
     },
@@ -32,9 +32,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0a84ff",
+          "backgroundColor": "#000000",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 96
+          "imageWidth": 200
         }
       ]
     ],

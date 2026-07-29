@@ -7,6 +7,7 @@ import { ArrowRight, CalendarDays, Sparkles, Users } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { EventSummary, Group, Paginated } from '@/lib/types';
 import { useAuthStore } from '@/stores/auth-store';
+import { BrandLogo } from '@/components/brand/brand-logo';
 import { Button } from '@/components/ui/button';
 import { EventCard, EventCardSkeleton } from '@/components/events/event-card';
 import { CommunityCard, CommunityCardSkeleton } from '@/components/groups/community-card';
@@ -45,6 +46,11 @@ export function HomeContent() {
           transition={{ duration: 0.5, ease: [0.32, 0.72, 0, 1] }}
           className="relative z-10 max-w-2xl"
         >
+          <BrandLogo
+            size="xl"
+            priority
+            className="mb-5 h-16 w-16 rounded-2xl shadow-lg ring-1 ring-white/20 md:h-20 md:w-20"
+          />
           <h1 className="text-[34px] font-extrabold leading-[1.1] tracking-tight md:text-[52px]">
             Find your people.
             <br />

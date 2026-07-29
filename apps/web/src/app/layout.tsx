@@ -13,6 +13,16 @@ export const metadata: Metadata = {
     'Discover communities, join groups, and attend events near you. MKE Plays is where hobbies, careers and friendships come together.',
   applicationName: 'MKE Plays',
   manifest: '/manifest.webmanifest',
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
+      { url: '/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
@@ -23,11 +33,13 @@ export const metadata: Metadata = {
     siteName: 'MKE Plays',
     title: 'MKE Plays — Find your people',
     description: 'Discover communities, join groups, and attend events near you.',
+    images: [{ url: '/brand/og.png', width: 1200, height: 630, alt: 'MKE Plays' }],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'MKE Plays — Find your people',
     description: 'Discover communities, join groups, and attend events near you.',
+    images: ['/brand/og.png'],
   },
   robots: { index: true, follow: true },
 };

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Button } from '@/components/ui/button';
 import { TextField } from '@/components/ui/text-field';
@@ -49,9 +50,19 @@ export default function LoginScreen() {
         contentContainerStyle={{ padding: spacing.xl, gap: spacing.lg }}
         keyboardShouldPersistTaps="handled"
       >
+        <View style={{ alignItems: 'center', gap: spacing.md }}>
+          <Image
+            source={require('../../assets/images/icon.png')}
+            style={{ width: 72, height: 72, borderRadius: 16 }}
+            contentFit="cover"
+            accessibilityLabel="MKE Plays"
+          />
+        </View>
         <View style={{ gap: 4 }}>
-          <Text style={{ fontSize: 28, fontWeight: '800', color: colors.ink }}>Welcome back</Text>
-          <Text style={{ fontSize: 15, color: colors.inkSecondary }}>
+          <Text style={{ fontSize: 28, fontWeight: '800', color: colors.ink, textAlign: 'center' }}>
+            Welcome back
+          </Text>
+          <Text style={{ fontSize: 15, color: colors.inkSecondary, textAlign: 'center' }}>
             Sign in with your phone to pick up where you left off.
           </Text>
         </View>
