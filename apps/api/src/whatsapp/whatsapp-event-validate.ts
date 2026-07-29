@@ -6,12 +6,14 @@
  * 2. Sport + time, no venue → reject (need a known court)
  * 3. Sport + known venue (± time) → accept (time may default)
  * 4. Known venue + time outside hours → reject
- * 5. Unknown / non-court venue or wrong sport → reject
+ * 5. Unknown venue → reject
+ * 6. Sport that cannot be played at the venue (e.g. swimming at courts) → reject
  *
+ * All sports are supported. We only reject clear sport↔venue mismatches.
  * Cancel / reschedule of an existing event bypasses these create rules.
  */
 
-import type { CatalogVenue } from './whatsapp-event-enrich';
+import type { CatalogVenue, SportCode } from './whatsapp-event-enrich';
 
 export type DetectedSport =
   | 'TENNIS'
@@ -19,13 +21,13 @@ export type DetectedSport =
   | 'BASKETBALL'
   | 'SOCCER'
   | 'VOLLEYBALL'
+  | 'SWIMMING'
   | 'OTHER';
 
 export type WhatsappCreateValidationCode =
   | 'INCOMPLETE'
   | 'MISSING_VENUE'
   | 'UNKNOWN_VENUE'
-  | 'UNSUPPORTED_SPORT'
   | 'SPORT_VENUE_MISMATCH'
   | 'OUTSIDE_HOURS';
 
@@ -39,7 +41,7 @@ export type WhatsappCreateValidationResult =
       details?: Record<string, unknown>;
     };
 
-/** Default outdoor / lighted tennis window (local venue timezone). */
+/** Default outdoor / lighted court window (local venue timezone). */
 export const DEFAULT_VENUE_OPEN_HOUR = 7;
 export const DEFAULT_VENUE_CLOSE_HOUR = 22; // last allowed start hour is 21:59
 
@@ -49,9 +51,19 @@ const SPORT_PATTERNS: Array<{ sport: DetectedSport; re: RegExp }> = [
   { sport: 'BASKETBALL', re: /\bbasket\s*-?\s*ball\b|\bhoops?\b/i },
   { sport: 'SOCCER', re: /\bsoccer\b|\bfootball\b/i },
   { sport: 'VOLLEYBALL', re: /\bvolley\s*-?\s*ball\b/i },
+  { sport: 'SWIMMING', re: /\bswim(?:ming)?\b|\bpool\s+party\b/i },
 ];
 
-const SUPPORTED_CREATE_SPORTS = new Set<DetectedSport>(['TENNIS']);
+/**
+ * Sports that can reasonably use a hard-court / racket-court venue (catalog TENNIS).
+ * Field / water sports are not compatible — e.g. swimming at pickleball/tennis courts.
+ */
+const COURT_COMPATIBLE_SPORTS = new Set<DetectedSport>([
+  'TENNIS',
+  'PICKLEBALL',
+  'BASKETBALL',
+  'VOLLEYBALL',
+]);
 
 const TIME_CUE_RE =
   /\b(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\b|\b\d{4}-\d{2}-\d{2}t\d{2}:/i;
@@ -69,6 +81,20 @@ export function detectSportFromText(
     if (re.test(hay)) return sport;
   }
   return null;
+}
+
+/** Whether this sport can be played at a catalog venue of the given sport code. */
+export function isSportCompatibleWithVenue(
+  sport: DetectedSport | null,
+  venueSport: SportCode | string | null | undefined,
+): boolean {
+  if (!sport) return true; // no sport stated → allow (venue implies court play)
+  const facility = String(venueSport || 'TENNIS').toUpperCase();
+  if (facility === 'TENNIS' || facility === 'PICKLEBALL') {
+    return COURT_COMPATIBLE_SPORTS.has(sport);
+  }
+  // Unknown future venue types: only exact sport match.
+  return sport === facility;
 }
 
 export function hasExplicitTimeCue(
@@ -134,6 +160,12 @@ export function formatHourLabel(hour24: number): string {
   return `${h - 12}:00 PM`;
 }
 
+function facilityLabel(venue: CatalogVenue): string {
+  const sport = String(venue.sport || 'TENNIS').toLowerCase();
+  if (sport === 'tennis' || sport === 'pickleball') return 'courts';
+  return `${sport} venue`;
+}
+
 /**
  * Validate a prospective WhatsApp create (not cancel/reschedule).
  */
@@ -167,27 +199,15 @@ export function validateWhatsappEventCreate(input: {
     input.timeWasExplicit ??
     hasExplicitTimeCue(input.messageBody, input.suggestedTime, input.title);
 
-  // Wrong / unsupported sport always wins, even if venue matched by alias.
-  if (sport && !SUPPORTED_CREATE_SPORTS.has(sport)) {
-    return {
-      ok: false,
-      code: 'UNSUPPORTED_SPORT',
-      message: `${sport.toLowerCase()} invites are not supported yet — this bridge only creates tennis events at known Milwaukee courts.`,
-      hints: [
-        'Say tennis and a known court (Atwater, McKinley / lakefront, Lake Park, Humboldt, Washington, Wilson, Hart).',
-        'Example: “Tennis at Atwater tomorrow at 6pm”',
-      ],
-      details: { sport },
-    };
-  }
-
-  if (sport && catalog && catalog.sport && sport !== catalog.sport) {
+  // Clear mismatch only — e.g. swimming at tennis/pickleball courts.
+  // Tennis, pickleball, basketball, etc. on hard courts are all allowed.
+  if (sport && catalog && !isSportCompatibleWithVenue(sport, catalog.sport)) {
     return {
       ok: false,
       code: 'SPORT_VENUE_MISMATCH',
-      message: `${sport.toLowerCase()} does not match ${catalog.name} (${catalog.sport.toLowerCase()} courts).`,
+      message: `You can’t play ${sport.toLowerCase()} at ${catalog.name} (${facilityLabel(catalog)}).`,
       hints: [
-        `Use a ${sport.toLowerCase()} venue, or switch the sport to ${catalog.sport.toLowerCase()}.`,
+        `Pick a sport that fits these ${facilityLabel(catalog)} (tennis, pickleball, …), or use a venue meant for ${sport.toLowerCase()}.`,
       ],
       details: { sport, venueSport: catalog.sport, venue: catalog.slug },
     };
@@ -202,7 +222,7 @@ export function validateWhatsappEventCreate(input: {
         ok: false,
         code: 'UNKNOWN_VENUE',
         message:
-          'That place is not a known tennis court in our Milwaukee catalog, so no event was created.',
+          'That place is not a known court in our Milwaukee catalog, so no event was created.',
         hints: [
           'Use a known court name: Atwater, McKinley / lakefront, Lake Park, Humboldt Park, Washington Park, Wilson Park, or Hart Park.',
           freeform ? `Ignored location: ${freeform}` : undefined,
@@ -217,7 +237,7 @@ export function validateWhatsappEventCreate(input: {
         code: 'INCOMPLETE',
         message:
           'Need a sport and a known court — a time alone is not enough to create an event.',
-        hints: ['Example: “Tennis at Atwater at 6pm”'],
+        hints: ['Example: “Tennis at Atwater at 6pm” or “Pickleball at the lakefront at 6”'],
       };
     }
 
@@ -227,7 +247,7 @@ export function validateWhatsappEventCreate(input: {
         code: 'MISSING_VENUE',
         message: `Got ${sport.toLowerCase()} and a time, but no known court. Event not created.`,
         hints: [
-          'Add a catalog venue, e.g. “Tennis at Atwater at 6pm” or “Tennis at the lakefront at 6”.',
+          'Add a catalog venue, e.g. “Tennis at Atwater at 6pm” or “Pickleball at the lakefront at 6”.',
         ],
         details: { sport },
       };
@@ -238,7 +258,7 @@ export function validateWhatsappEventCreate(input: {
         ok: false,
         code: 'MISSING_VENUE',
         message: `Got ${sport.toLowerCase()}, but no known court. Event not created.`,
-        hints: ['Example: “Tennis at Atwater tomorrow at 6pm”'],
+        hints: ['Example: “Pickleball at Atwater tomorrow at 6pm”'],
         details: { sport },
       };
     }
@@ -247,7 +267,7 @@ export function validateWhatsappEventCreate(input: {
       ok: false,
       code: 'INCOMPLETE',
       message:
-        'Could not create an event — include tennis and a known Milwaukee court (time optional).',
+        'Could not create an event — include a sport and a known Milwaukee court (time optional).',
       hints: ['Example: “Tennis at Atwater at 6pm”'],
     };
   }

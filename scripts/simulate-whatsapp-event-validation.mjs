@@ -83,16 +83,12 @@ async function main() {
     assert('2 code MISSING_VENUE', res.json?.code === 'MISSING_VENUE', `code=${res.json?.code}`);
   }
 
-  // 2b pickleball + time → reject unsupported (or missing venue)
+  // 2b pickleball + time, no venue → still need a court (sport itself is fine)
   {
     const res = await create('pickle-time', { messageBody: 'pickleball at 6pm' });
-    print('2b) pickleball + time', res);
+    print('2b) pickleball + time, no venue', res);
     assert('2b rejected', res.status === 422, `status=${res.status}`);
-    assert(
-      '2b unsupported or missing venue',
-      res.json?.code === 'UNSUPPORTED_SPORT' || res.json?.code === 'MISSING_VENUE',
-      `code=${res.json?.code}`,
-    );
+    assert('2b MISSING_VENUE', res.json?.code === 'MISSING_VENUE', `code=${res.json?.code}`);
   }
 
   // 3 tennis + Atwater → accept
@@ -105,6 +101,15 @@ async function main() {
       /atwater/i.test(res.json?.event?.locationName || ''),
       `loc=${res.json?.event?.locationName}`,
     );
+  }
+
+  // 3b pickleball + Atwater → accept (court-compatible)
+  {
+    const res = await create('pickle-atwater', {
+      messageBody: 'pickleball at Atwater tomorrow at 6pm',
+    });
+    print('3b) pickleball + Atwater + 6pm', res);
+    assert('3b created', res.status < 400 && res.json?.event?.id, `status=${res.status}`);
   }
 
   // 4 unrealistic hours → reject
@@ -148,14 +153,27 @@ async function main() {
     assert('5b UNKNOWN_VENUE', res.json?.code === 'UNKNOWN_VENUE', `code=${res.json?.code}`);
   }
 
-  // 5c basketball at Washington Park → reject unsupported sport
+  // 5c basketball at Washington Park → accept (court sport)
   {
     const res = await create('bball-wash', {
       messageBody: 'basketball at Washington Park at 6pm',
     });
     print('5c) basketball at Washington Park', res);
-    assert('5c rejected', res.status === 422, `status=${res.status}`);
-    assert('5c UNSUPPORTED_SPORT', res.json?.code === 'UNSUPPORTED_SPORT', `code=${res.json?.code}`);
+    assert('5c created', res.status < 400 && res.json?.event?.id, `status=${res.status}`);
+  }
+
+  // 5d swimming at Atwater courts → reject mismatch
+  {
+    const res = await create('swim-atwater', {
+      messageBody: 'swimming at Atwater at 6pm',
+    });
+    print('5d) swimming at Atwater courts', res);
+    assert('5d rejected', res.status === 422, `status=${res.status}`);
+    assert(
+      '5d SPORT_VENUE_MISMATCH',
+      res.json?.code === 'SPORT_VENUE_MISMATCH',
+      `code=${res.json?.code}`,
+    );
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

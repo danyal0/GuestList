@@ -2,15 +2,30 @@ import { resolveCatalogVenue } from './whatsapp-event-enrich';
 import {
   detectSportFromText,
   hasExplicitTimeCue,
+  isSportCompatibleWithVenue,
   isWithinVenueHours,
   validateWhatsappEventCreate,
 } from './whatsapp-event-validate';
 
 describe('detectSportFromText', () => {
-  it('detects tennis and pickleball', () => {
+  it('detects court and water sports', () => {
     expect(detectSportFromText('tennis at 6')).toBe('TENNIS');
     expect(detectSportFromText('Pickleball tonight')).toBe('PICKLEBALL');
     expect(detectSportFromText('basketball at washington')).toBe('BASKETBALL');
+    expect(detectSportFromText('swimming at Atwater')).toBe('SWIMMING');
+  });
+});
+
+describe('isSportCompatibleWithVenue', () => {
+  it('allows racket/court sports on tennis courts', () => {
+    expect(isSportCompatibleWithVenue('TENNIS', 'TENNIS')).toBe(true);
+    expect(isSportCompatibleWithVenue('PICKLEBALL', 'TENNIS')).toBe(true);
+    expect(isSportCompatibleWithVenue('BASKETBALL', 'TENNIS')).toBe(true);
+  });
+
+  it('rejects swimming / soccer on tennis courts', () => {
+    expect(isSportCompatibleWithVenue('SWIMMING', 'TENNIS')).toBe(false);
+    expect(isSportCompatibleWithVenue('SOCCER', 'TENNIS')).toBe(false);
   });
 });
 
@@ -69,7 +84,7 @@ describe('validateWhatsappEventCreate', () => {
     if (!result.ok) expect(result.code).toBe('MISSING_VENUE');
   });
 
-  it('accepts sport + catalog venue with default-friendly time', () => {
+  it('accepts tennis + catalog venue', () => {
     const result = validateWhatsappEventCreate({
       messageBody: 'tennis at Atwater',
       catalogVenue: atwater,
@@ -78,6 +93,41 @@ describe('validateWhatsappEventCreate', () => {
       timeWasExplicit: false,
     });
     expect(result).toEqual({ ok: true });
+  });
+
+  it('accepts pickleball at tennis courts', () => {
+    const result = validateWhatsappEventCreate({
+      messageBody: 'pickleball at Atwater at 6pm',
+      catalogVenue: atwater,
+      startTime: evening,
+      timezone: 'America/Chicago',
+      timeWasExplicit: true,
+    });
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('accepts basketball at a tennis park alias', () => {
+    const washington = resolveCatalogVenue('washington park')!.venue;
+    const result = validateWhatsappEventCreate({
+      messageBody: 'basketball at Washington Park at 6pm',
+      catalogVenue: washington,
+      startTime: evening,
+      timezone: 'America/Chicago',
+      timeWasExplicit: true,
+    });
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('rejects swimming at tennis/pickleball courts', () => {
+    const result = validateWhatsappEventCreate({
+      messageBody: 'swimming at Atwater at 6pm',
+      catalogVenue: atwater,
+      startTime: evening,
+      timezone: 'America/Chicago',
+      timeWasExplicit: true,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('SPORT_VENUE_MISMATCH');
   });
 
   it('rejects unrealistic hours at a known venue', () => {
@@ -103,30 +153,5 @@ describe('validateWhatsappEventCreate', () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe('UNKNOWN_VENUE');
-  });
-
-  it('rejects unsupported sports even when a tennis park alias matches', () => {
-    const washington = resolveCatalogVenue('washington park')!.venue;
-    const result = validateWhatsappEventCreate({
-      messageBody: 'basketball at Washington Park at 6pm',
-      catalogVenue: washington,
-      startTime: evening,
-      timezone: 'America/Chicago',
-      timeWasExplicit: true,
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe('UNSUPPORTED_SPORT');
-  });
-
-  it('rejects pickleball (unsupported) at Atwater', () => {
-    const result = validateWhatsappEventCreate({
-      messageBody: 'pickleball at Atwater at 6pm',
-      catalogVenue: atwater,
-      startTime: evening,
-      timezone: 'America/Chicago',
-      timeWasExplicit: true,
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe('UNSUPPORTED_SPORT');
   });
 });
