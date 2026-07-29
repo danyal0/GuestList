@@ -49,7 +49,7 @@ export function HomeContent() {
           <BrandLogo
             size="xl"
             priority
-            className="mb-5 h-16 w-16 rounded-2xl shadow-lg ring-1 ring-white/20 md:h-20 md:w-20"
+            className="mb-5 h-16 w-auto md:h-20"
           />
           <h1 className="text-[34px] font-extrabold leading-[1.1] tracking-tight md:text-[52px]">
             Find your people.
