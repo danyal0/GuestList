@@ -56,10 +56,7 @@ Base URL: `/api/v1` · Interactive Swagger docs at **`/api/docs`** (non-producti
 | POST | `/groups/:id/members/:userId/approve` · `/reject` · `/ban` · `/unban` | Member lifecycle (Admin+, outranking enforced) |
 | PATCH | `/groups/:id/members/:userId/role` | Promote/demote (Admin+) |
 
-| GET | `/suggestions/events?q=` | Autofill while creating events (past events, venues, heuristics, optional AI) |
-| GET | `/suggestions/groups?q=` | Autofill while creating communities |
-
-## Events & RSVP
+## Events
 
 | Method | Path | Description |
 | --- | --- | --- |
@@ -109,6 +106,13 @@ Base URL: `/api/v1` · Interactive Swagger docs at **`/api/docs`** (non-producti
 | GET | `/admin/users` · `/groups` · `/events` · `/audit-logs` | Admin lists (RBAC `ADMIN`) |
 | PATCH | `/admin/users/:id/suspension` · `/role` | Suspend / change role |
 | GET | `/admin/analytics/overview` · `/dau` · `/mau` · `/growth` · `/retention` · `/attendance` | Dashboard data |
+| GET | `/admin/conversations` | List chats system-wide |
+| DELETE | `/admin/conversations/:id` | Hard-delete chat + messages |
+| POST | `/admin/bulk/conversations/hard-delete` | Bulk hard-delete chats |
+| GET | `/admin/friendships` | List friendships / pending requests |
+| DELETE | `/admin/friendships/:id` | Remove friendship / cancel pending request |
+| POST | `/admin/bulk/friendships/remove` | Bulk unfriend / cancel requests |
+| POST | `/admin/import/events` | Import events from JSON/CSV (`?includeRemote=1`); returns `importedEvents`, `createdEvents`, `updatedEvents` |
 
 ## Realtime (Socket.IO)
 

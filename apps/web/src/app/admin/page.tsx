@@ -65,6 +65,26 @@ interface AdminEvent {
   _count: { rsvps: number };
 }
 
+interface AdminConversation {
+  id: string;
+  type: 'DIRECT' | 'GROUP';
+  title: string | null;
+  updatedAt: string;
+  messageCount: number;
+  group: { id: string; name: string; slug: string } | null;
+  participants: Array<{
+    user: { id: string; name: string; email: string | null; avatarUrl: string | null };
+  }>;
+}
+
+interface AdminFriendship {
+  id: string;
+  status: 'ACCEPTED' | 'PENDING';
+  createdAt: string;
+  requester: { id: string; name: string; email: string | null; avatarUrl: string | null };
+  addressee: { id: string; name: string; email: string | null; avatarUrl: string | null };
+}
+
 interface AdminReport {
   id: string;
   targetType: string;
@@ -171,9 +191,14 @@ export default function AdminPage() {
   const [userSearch, setUserSearch] = React.useState('');
   const [groupSearch, setGroupSearch] = React.useState('');
   const [eventSearch, setEventSearch] = React.useState('');
+  const [chatSearch, setChatSearch] = React.useState('');
+  const [friendSearch, setFriendSearch] = React.useState('');
+  const [friendStatus, setFriendStatus] = React.useState<'ACCEPTED' | 'PENDING' | ''>('');
   const [selectedUsers, setSelectedUsers] = React.useState<Set<string>>(new Set());
   const [selectedGroups, setSelectedGroups] = React.useState<Set<string>>(new Set());
   const [selectedEvents, setSelectedEvents] = React.useState<Set<string>>(new Set());
+  const [selectedChats, setSelectedChats] = React.useState<Set<string>>(new Set());
+  const [selectedFriendships, setSelectedFriendships] = React.useState<Set<string>>(new Set());
   const [membersGroupId, setMembersGroupId] = React.useState<string | null>(null);
   const [addMemberUserId, setAddMemberUserId] = React.useState('');
   const [addMemberRole, setAddMemberRole] = React.useState('MEMBER');
@@ -186,6 +211,7 @@ export default function AdminPage() {
     reusedGroups: number;
     createdEvents: number;
     updatedEvents: number;
+    importedEvents?: number;
     samples: Array<{ title: string; group: string; location: string | null }>;
   } | null>(null);
   const [confirm, setConfirm] = React.useState<{
@@ -271,6 +297,22 @@ export default function AdminPage() {
       ),
     enabled,
   });
+  const conversations = useQuery({
+    queryKey: ['admin-conversations', chatSearch],
+    queryFn: () =>
+      api<Paginated<AdminConversation>>(
+        `/admin/conversations?limit=50${chatSearch ? `&q=${encodeURIComponent(chatSearch)}` : ''}`,
+      ),
+    enabled,
+  });
+  const friendships = useQuery({
+    queryKey: ['admin-friendships', friendSearch, friendStatus],
+    queryFn: () =>
+      api<Paginated<AdminFriendship>>(
+        `/admin/friendships?limit=50${friendSearch ? `&q=${encodeURIComponent(friendSearch)}` : ''}${friendStatus ? `&status=${friendStatus}` : ''}`,
+      ),
+    enabled,
+  });
   const reports = useQuery({
     queryKey: ['admin-reports'],
     queryFn: () => api<Paginated<AdminReport>>('/moderation/reports?status=OPEN&limit=50'),
@@ -306,6 +348,8 @@ export default function AdminPage() {
     void queryClient.invalidateQueries({ queryKey: ['admin-users'] });
     void queryClient.invalidateQueries({ queryKey: ['admin-groups'] });
     void queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+    void queryClient.invalidateQueries({ queryKey: ['admin-conversations'] });
+    void queryClient.invalidateQueries({ queryKey: ['admin-friendships'] });
     void queryClient.invalidateQueries({ queryKey: ['admin-reports'] });
     void queryClient.invalidateQueries({ queryKey: ['admin-audit'] });
     void queryClient.invalidateQueries({ queryKey: ['admin-detailed-stats'] });
@@ -518,6 +562,52 @@ export default function AdminPage() {
     onError,
   });
 
+  const deleteConversation = useMutation({
+    mutationFn: (id: string) => api(`/admin/conversations/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      toast.success('Chat deleted');
+      invalidateAll();
+    },
+    onError,
+  });
+
+  const bulkDeleteConversations = useMutation({
+    mutationFn: (ids: string[]) =>
+      api<{ deleted: number }>('/admin/bulk/conversations/hard-delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      }),
+    onSuccess: (data) => {
+      toast.success(`Deleted ${data.deleted} chats`);
+      setSelectedChats(new Set());
+      invalidateAll();
+    },
+    onError,
+  });
+
+  const removeFriendship = useMutation({
+    mutationFn: (id: string) => api(`/admin/friendships/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      toast.success('Friendship removed');
+      invalidateAll();
+    },
+    onError,
+  });
+
+  const bulkRemoveFriendships = useMutation({
+    mutationFn: (ids: string[]) =>
+      api<{ removed: number }>('/admin/bulk/friendships/remove', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      }),
+    onSuccess: (data) => {
+      toast.success(`Removed ${data.removed} friendships`);
+      setSelectedFriendships(new Set());
+      invalidateAll();
+    },
+    onError,
+  });
+
   const resolveReport = useMutation({
     mutationFn: ({ id, dismiss, takedown }: { id: string; dismiss: boolean; takedown: boolean }) =>
       api(`/moderation/reports/${id}/resolve`, {
@@ -552,16 +642,28 @@ export default function AdminPage() {
         reusedGroups: number;
         createdEvents: number;
         updatedEvents: number;
+        importedEvents: number;
         samples: Array<{ title: string; group: string; location: string | null }>;
       }>(`/admin/import/events${qs}`, { method: 'POST', body });
     },
     onSuccess: (data) => {
       setImportResult(data);
-      toast.success(
-        `Imported ${data.createdEvents} events` +
-          (data.updatedEvents ? ` · updated ${data.updatedEvents}` : '') +
-          (data.createdGroups ? ` · ${data.createdGroups} new communities` : ''),
-      );
+      const imported = data.importedEvents ?? data.createdEvents + data.updatedEvents;
+      if (data.accepted === 0) {
+        toast.warning(
+          `No events imported — ${data.skippedRemote} skipped as out-of-market, ${data.skippedInvalid} invalid.` +
+            (data.skippedRemote > 0 && !importIncludeRemote
+              ? ' Enable “Include out-of-market events” if your file is not Milwaukee-local.'
+              : ''),
+        );
+      } else if (imported === 0) {
+        toast.warning('Rows were accepted but no events were created or updated.');
+      } else {
+        toast.success(
+          `Imported ${imported} events (${data.createdEvents} new${data.updatedEvents ? `, ${data.updatedEvents} updated` : ''})` +
+            (data.createdGroups ? ` · ${data.createdGroups} new communities` : ''),
+        );
+      }
       invalidateAll();
     },
     onError,
@@ -647,6 +749,8 @@ export default function AdminPage() {
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="communities">Communities</TabsTrigger>
           <TabsTrigger value="events">Events</TabsTrigger>
+          <TabsTrigger value="chats">Chats</TabsTrigger>
+          <TabsTrigger value="friendships">Friends</TabsTrigger>
           <TabsTrigger value="import">Import</TabsTrigger>
           <TabsTrigger value="reports">
             Reports{reports.data && reports.data.total > 0 ? ` (${reports.data.total})` : ''}
@@ -1162,6 +1266,195 @@ export default function AdminPage() {
           </div>
         </TabsContent>
 
+        <TabsContent value="chats" className="space-y-4">
+          <Input
+            placeholder="Search chats by title, community, or participant…"
+            value={chatSearch}
+            onChange={(e) => setChatSearch(e.target.value)}
+            className="max-w-sm"
+          />
+          <BulkBar
+            count={selectedChats.size}
+            onClear={() => setSelectedChats(new Set())}
+            actions={[
+              {
+                label: 'Delete selected',
+                loading: bulkDeleteConversations.isPending,
+                onClick: () =>
+                  setConfirm({
+                    title: `Delete ${selectedChats.size} chats?`,
+                    description:
+                      'Permanent. Removes the conversations, all messages, and participant records.',
+                    action: () => bulkDeleteConversations.mutate([...selectedChats]),
+                  }),
+              },
+            ]}
+          />
+          <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--color-hairline)] bg-[var(--color-surface)]">
+            <table className="w-full min-w-[720px] text-left text-[14px]">
+              <thead>
+                <tr className="border-b border-[var(--color-hairline)] text-[13px] text-[var(--color-ink-tertiary)]">
+                  <th className="p-3 font-semibold" />
+                  <th className="p-3 font-semibold">Chat</th>
+                  <th className="p-3 font-semibold">Participants</th>
+                  <th className="p-3 font-semibold">Messages</th>
+                  <th className="p-3 font-semibold">Updated</th>
+                  <th className="p-3 font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(conversations.data?.items ?? []).map((row) => (
+                  <tr key={row.id} className="border-b border-[var(--color-hairline)] last:border-0">
+                    <td className="p-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedChats.has(row.id)}
+                        onChange={() => toggleId(selectedChats, row.id, selectedChats, setSelectedChats)}
+                        aria-label={`Select chat ${row.title ?? row.id}`}
+                      />
+                    </td>
+                    <td className="p-3">
+                      <p className="font-semibold">
+                        {row.title ??
+                          (row.type === 'GROUP'
+                            ? row.group?.name ?? 'Community chat'
+                            : 'Direct message')}
+                      </p>
+                      <p className="text-[13px] text-[var(--color-ink-tertiary)]">
+                        {row.type === 'GROUP' ? 'Community' : 'Direct'}
+                        {row.group ? ` · ${row.group.name}` : ''}
+                      </p>
+                    </td>
+                    <td className="p-3 text-[var(--color-ink-secondary)]">
+                      {row.participants.map((p) => p.user.name).join(', ') || '—'}
+                    </td>
+                    <td className="p-3 text-[var(--color-ink-secondary)]">{row.messageCount}</td>
+                    <td className="p-3 text-[var(--color-ink-secondary)]">
+                      {formatRelative(row.updatedAt)}
+                    </td>
+                    <td className="p-3">
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() =>
+                          setConfirm({
+                            title: 'Delete this chat?',
+                            description:
+                              'Permanent. Removes all messages in this conversation.',
+                            action: () => deleteConversation.mutate(row.id),
+                          })
+                        }
+                      >
+                        Delete
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="friendships" className="space-y-4">
+          <div className="flex flex-wrap gap-3">
+            <Input
+              placeholder="Search by name or email…"
+              value={friendSearch}
+              onChange={(e) => setFriendSearch(e.target.value)}
+              className="max-w-sm"
+            />
+            <Select
+              value={friendStatus}
+              onChange={(e) => setFriendStatus(e.target.value as 'ACCEPTED' | 'PENDING' | '')}
+              className="max-w-[180px]"
+            >
+              <option value="">All statuses</option>
+              <option value="ACCEPTED">Friends</option>
+              <option value="PENDING">Pending</option>
+            </Select>
+          </div>
+          <BulkBar
+            count={selectedFriendships.size}
+            onClear={() => setSelectedFriendships(new Set())}
+            actions={[
+              {
+                label: 'Unfriend selected',
+                loading: bulkRemoveFriendships.isPending,
+                onClick: () =>
+                  setConfirm({
+                    title: `Remove ${selectedFriendships.size} friendships?`,
+                    description:
+                      'Breaks the connection or cancels pending requests. Users are not notified by admin action.',
+                    action: () => bulkRemoveFriendships.mutate([...selectedFriendships]),
+                  }),
+              },
+            ]}
+          />
+          <div className="overflow-x-auto rounded-[var(--radius-lg)] border border-[var(--color-hairline)] bg-[var(--color-surface)]">
+            <table className="w-full min-w-[720px] text-left text-[14px]">
+              <thead>
+                <tr className="border-b border-[var(--color-hairline)] text-[13px] text-[var(--color-ink-tertiary)]">
+                  <th className="p-3 font-semibold" />
+                  <th className="p-3 font-semibold">People</th>
+                  <th className="p-3 font-semibold">Status</th>
+                  <th className="p-3 font-semibold">Since</th>
+                  <th className="p-3 font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(friendships.data?.items ?? []).map((row) => (
+                  <tr key={row.id} className="border-b border-[var(--color-hairline)] last:border-0">
+                    <td className="p-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedFriendships.has(row.id)}
+                        onChange={() =>
+                          toggleId(selectedFriendships, row.id, selectedFriendships, setSelectedFriendships)
+                        }
+                        aria-label={`Select friendship ${row.requester.name} and ${row.addressee.name}`}
+                      />
+                    </td>
+                    <td className="p-3">
+                      <p className="font-semibold">
+                        {row.requester.name} ↔ {row.addressee.name}
+                      </p>
+                      <p className="text-[13px] text-[var(--color-ink-tertiary)]">
+                        {row.requester.email ?? row.requester.id} · {row.addressee.email ?? row.addressee.id}
+                      </p>
+                    </td>
+                    <td className="p-3">
+                      <Badge variant={row.status === 'ACCEPTED' ? 'success' : 'warning'}>
+                        {row.status === 'ACCEPTED' ? 'Friends' : 'Pending'}
+                      </Badge>
+                    </td>
+                    <td className="p-3 text-[var(--color-ink-secondary)]">
+                      {formatDate(row.createdAt, { year: 'numeric' })}
+                    </td>
+                    <td className="p-3">
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() =>
+                          setConfirm({
+                            title:
+                              row.status === 'ACCEPTED'
+                                ? 'Unfriend these users?'
+                                : 'Cancel this friend request?',
+                            description: 'Removes the friendship record from the system.',
+                            action: () => removeFriendship.mutate(row.id),
+                          })
+                        }
+                      >
+                        {row.status === 'ACCEPTED' ? 'Unfriend' : 'Remove'}
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </TabsContent>
+
         <TabsContent value="import" className="space-y-4">
           <div className="rounded-[var(--radius-lg)] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-5">
             <h2 className="text-[17px] font-bold tracking-tight">Import events</h2>
@@ -1217,6 +1510,10 @@ export default function AdminPage() {
               <h3 className="text-[15px] font-bold">Last import</h3>
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                 <StatCard label="Accepted" value={importResult.accepted} />
+                <StatCard
+                  label="Imported events"
+                  value={importResult.importedEvents ?? importResult.createdEvents + importResult.updatedEvents}
+                />
                 <StatCard label="Created events" value={importResult.createdEvents} />
                 <StatCard label="Updated events" value={importResult.updatedEvents} />
                 <StatCard label="New communities" value={importResult.createdGroups} />

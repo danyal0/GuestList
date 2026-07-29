@@ -40,6 +40,8 @@ export type ImportEventsResult = {
   reusedGroups: number;
   createdEvents: number;
   updatedEvents: number;
+  /** created + updated — what admins usually mean by "imported". */
+  importedEvents: number;
   samples: Array<{ title: string; group: string; location: string | null }>;
 };
 
@@ -304,6 +306,7 @@ export class EventImportService {
       reusedGroups,
       createdEvents,
       updatedEvents,
+      importedEvents: createdEvents + updatedEvents,
       samples,
     };
   }
@@ -321,7 +324,11 @@ export class EventImportService {
         ? (parsed as { events: unknown[] }).events
         : Array.isArray((parsed as { items?: unknown }).items)
           ? (parsed as { items: unknown[] }).items
-          : null;
+          : Array.isArray((parsed as { data?: unknown }).data)
+            ? (parsed as { data: unknown[] }).data
+            : Array.isArray((parsed as { records?: unknown }).records)
+              ? (parsed as { records: unknown[] }).records
+              : null;
     if (!list) throw new BadRequestException('JSON must be an array of events');
     return list.map((item) => this.normalizeObject(item as Record<string, unknown>));
   }
@@ -391,9 +398,6 @@ export class EventImportService {
         const val = lower[alias];
         if (val != null && String(val).trim()) return String(val).trim();
       }
-      // Meetup scraper keys
-      if (key === 'name' && lower.name) return String(lower.name).trim();
-      if (key === 'dateTime' && lower['date and time']) return String(lower['date and time']).trim();
       return undefined;
     };
     return {

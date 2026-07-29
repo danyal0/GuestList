@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { EventStatus, GroupMemberRole, GroupMemberStatus, Prisma, UserRole } from '@prisma/client';
+import { EventStatus, FriendshipStatus, GroupMemberRole, GroupMemberStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { paginate } from '../common/dto/pagination.dto';
@@ -584,5 +584,186 @@ export class AdminService {
       this.prisma.auditLog.count(),
     ]);
     return paginate(items, total, page, limit);
+  }
+
+  async listConversations(q: string | undefined, page: number, limit: number) {
+    const where: Prisma.ConversationWhereInput = q
+      ? {
+          OR: [
+            { title: { contains: q, mode: 'insensitive' } },
+            { group: { name: { contains: q, mode: 'insensitive' } } },
+            {
+              participants: {
+                some: {
+                  user: {
+                    OR: [
+                      { name: { contains: q, mode: 'insensitive' } },
+                      { email: { contains: q, mode: 'insensitive' } },
+                    ],
+                  },
+                },
+              },
+            },
+          ],
+        }
+      : {};
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.conversation.findMany({
+        where,
+        include: {
+          group: { select: { id: true, name: true, slug: true } },
+          participants: {
+            include: {
+              user: { select: { id: true, name: true, email: true, avatarUrl: true } },
+            },
+          },
+          _count: { select: { messages: true } },
+        },
+        orderBy: { updatedAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.conversation.count({ where }),
+    ]);
+
+    return paginate(
+      items.map(({ _count, ...rest }) => ({
+        ...rest,
+        messageCount: _count.messages,
+      })),
+      total,
+      page,
+      limit,
+    );
+  }
+
+  async hardDeleteConversation(adminId: string, conversationId: string): Promise<void> {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { id: true, type: true, title: true, groupId: true },
+    });
+    if (!conversation) throw new NotFoundException('Conversation not found');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.message.deleteMany({ where: { conversationId } });
+      await tx.conversationParticipant.deleteMany({ where: { conversationId } });
+      await tx.conversation.delete({ where: { id: conversationId } });
+    });
+
+    await this.auditService.log({
+      actorId: adminId,
+      action: 'admin.conversation_hard_delete',
+      targetType: 'CONVERSATION',
+      targetId: conversationId,
+      metadata: {
+        type: conversation.type,
+        title: conversation.title,
+        groupId: conversation.groupId,
+      },
+    });
+  }
+
+  async bulkHardDeleteConversations(
+    adminId: string,
+    ids: string[],
+  ): Promise<{ deleted: number }> {
+    const unique = [...new Set(ids)].filter(Boolean);
+    let deleted = 0;
+    for (const id of unique) {
+      try {
+        await this.hardDeleteConversation(adminId, id);
+        deleted += 1;
+      } catch {
+        // skip missing
+      }
+    }
+    await this.auditService.log({
+      actorId: adminId,
+      action: 'admin.bulk_conversation_hard_delete',
+      metadata: { requested: unique.length, deleted },
+    });
+    return { deleted };
+  }
+
+  async listFriendships(
+    q: string | undefined,
+    status: 'ACCEPTED' | 'PENDING' | undefined,
+    page: number,
+    limit: number,
+  ) {
+    const where: Prisma.FriendshipWhereInput = {
+      ...(status ? { status } : {}),
+      ...(q
+        ? {
+            OR: [
+              { requester: { name: { contains: q, mode: 'insensitive' } } },
+              { requester: { email: { contains: q, mode: 'insensitive' } } },
+              { addressee: { name: { contains: q, mode: 'insensitive' } } },
+              { addressee: { email: { contains: q, mode: 'insensitive' } } },
+            ],
+          }
+        : {}),
+    };
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.friendship.findMany({
+        where,
+        include: {
+          requester: { select: { id: true, name: true, email: true, avatarUrl: true } },
+          addressee: { select: { id: true, name: true, email: true, avatarUrl: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.friendship.count({ where }),
+    ]);
+    return paginate(items, total, page, limit);
+  }
+
+  async removeFriendship(adminId: string, friendshipId: string): Promise<void> {
+    const friendship = await this.prisma.friendship.findUnique({
+      where: { id: friendshipId },
+      include: {
+        requester: { select: { id: true, name: true } },
+        addressee: { select: { id: true, name: true } },
+      },
+    });
+    if (!friendship) throw new NotFoundException('Friendship not found');
+
+    await this.prisma.friendship.delete({ where: { id: friendshipId } });
+    await this.auditService.log({
+      actorId: adminId,
+      action: 'admin.friendship_remove',
+      targetType: 'FRIENDSHIP',
+      targetId: friendshipId,
+      metadata: {
+        status: friendship.status,
+        requesterId: friendship.requesterId,
+        addresseeId: friendship.addresseeId,
+        requesterName: friendship.requester.name,
+        addresseeName: friendship.addressee.name,
+      },
+    });
+  }
+
+  async bulkRemoveFriendships(adminId: string, ids: string[]): Promise<{ removed: number }> {
+    const unique = [...new Set(ids)].filter(Boolean);
+    let removed = 0;
+    for (const id of unique) {
+      try {
+        await this.removeFriendship(adminId, id);
+        removed += 1;
+      } catch {
+        // skip
+      }
+    }
+    await this.auditService.log({
+      actorId: adminId,
+      action: 'admin.bulk_friendship_remove',
+      metadata: { requested: unique.length, removed },
+    });
+    return { removed };
   }
 }

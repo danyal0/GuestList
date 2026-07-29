@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags } from '@nestjs/swagger';
-import { GroupMemberRole, UserRole } from '@prisma/client';
+import { GroupMemberRole, UserRole, FriendshipStatus } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -70,6 +70,17 @@ class BulkIdsDto {
   @ArrayMaxSize(100)
   @IsString({ each: true })
   ids!: string[];
+}
+
+class FriendshipsQueryDto extends PaginationDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  q?: string;
+
+  @IsOptional()
+  @IsEnum(FriendshipStatus)
+  status?: FriendshipStatus;
 }
 
 @ApiTags('admin')
@@ -226,6 +237,46 @@ export class AdminController {
   @HttpCode(HttpStatus.OK)
   async bulkHardDeleteEvents(@CurrentUser() admin: AuthUser, @Body() dto: BulkIdsDto) {
     return this.adminService.bulkHardDeleteEvents(admin.id, dto.ids);
+  }
+
+  // ───────── Chats ─────────
+
+  @Get('conversations')
+  async conversations(@Query() query: AdminSearchDto) {
+    return this.adminService.listConversations(query.q, query.page, query.limit);
+  }
+
+  @Delete('conversations/:id')
+  @HttpCode(HttpStatus.OK)
+  async deleteConversation(@CurrentUser() admin: AuthUser, @Param('id') id: string) {
+    await this.adminService.hardDeleteConversation(admin.id, id);
+    return { success: true };
+  }
+
+  @Post('bulk/conversations/hard-delete')
+  @HttpCode(HttpStatus.OK)
+  async bulkDeleteConversations(@CurrentUser() admin: AuthUser, @Body() dto: BulkIdsDto) {
+    return this.adminService.bulkHardDeleteConversations(admin.id, dto.ids);
+  }
+
+  // ───────── Friendships ─────────
+
+  @Get('friendships')
+  async friendships(@Query() query: FriendshipsQueryDto) {
+    return this.adminService.listFriendships(query.q, query.status, query.page, query.limit);
+  }
+
+  @Delete('friendships/:id')
+  @HttpCode(HttpStatus.OK)
+  async removeFriendship(@CurrentUser() admin: AuthUser, @Param('id') id: string) {
+    await this.adminService.removeFriendship(admin.id, id);
+    return { success: true };
+  }
+
+  @Post('bulk/friendships/remove')
+  @HttpCode(HttpStatus.OK)
+  async bulkRemoveFriendships(@CurrentUser() admin: AuthUser, @Body() dto: BulkIdsDto) {
+    return this.adminService.bulkRemoveFriendships(admin.id, dto.ids);
   }
 
   // ───────── Import ─────────
