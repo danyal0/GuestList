@@ -129,7 +129,80 @@ export class FileStore {
     this.db = JSON.parse(readFileSync(this.path, 'utf8')) as MockDatabase;
     if (!Array.isArray(this.db.venues)) this.db.venues = [];
     this.ensureWhatsappExtras();
+    this.repairOrphanedRelations();
     this.rebaseEventDates();
+  }
+
+  /**
+   * Remove rows left behind by older file-mode deletes that did not cascade.
+   * Fixes production DBs where hard-deleted communities left orphan events
+   * (admin backoffice then crashed on null `event.group`).
+   */
+  private repairOrphanedRelations(): void {
+    const groupIds = new Set(this.db.groups.map((g) => g.id));
+    const userIds = new Set(this.db.users.map((u) => u.id));
+    let changed = false;
+
+    const beforeEvents = this.db.events.length;
+    this.db.events = this.db.events.filter((e) => groupIds.has(e.groupId));
+    if (this.db.events.length !== beforeEvents) changed = true;
+
+    const eventIds = new Set(this.db.events.map((e) => e.id));
+    const beforeRsvps = this.db.rsvps.length;
+    this.db.rsvps = this.db.rsvps.filter(
+      (r) => eventIds.has(r.eventId) && userIds.has(r.userId),
+    );
+    if (this.db.rsvps.length !== beforeRsvps) changed = true;
+
+    const beforeMembers = this.db.groupMembers.length;
+    this.db.groupMembers = this.db.groupMembers.filter(
+      (m) => groupIds.has(m.groupId) && userIds.has(m.userId),
+    );
+    if (this.db.groupMembers.length !== beforeMembers) changed = true;
+
+    const beforeFollows = this.db.follows.length;
+    this.db.follows = this.db.follows.filter(
+      (f) => groupIds.has(f.groupId) && userIds.has(f.userId),
+    );
+    if (this.db.follows.length !== beforeFollows) changed = true;
+
+    for (const payment of this.db.payments) {
+      if (payment.groupId != null && !groupIds.has(payment.groupId)) {
+        payment.groupId = null;
+        changed = true;
+      }
+    }
+
+    const beforeConversations = this.db.conversations.length;
+    this.db.conversations = this.db.conversations.filter(
+      (c) => c.groupId == null || groupIds.has(c.groupId),
+    );
+    if (this.db.conversations.length !== beforeConversations) changed = true;
+
+    const conversationIds = new Set(this.db.conversations.map((c) => c.id));
+    const beforeParticipants = this.db.conversationParticipants.length;
+    this.db.conversationParticipants = this.db.conversationParticipants.filter(
+      (p) => conversationIds.has(p.conversationId) && userIds.has(p.userId),
+    );
+    if (this.db.conversationParticipants.length !== beforeParticipants) changed = true;
+
+    const beforeMessages = this.db.messages.length;
+    this.db.messages = this.db.messages.filter((m) =>
+      conversationIds.has(m.conversationId),
+    );
+    if (this.db.messages.length !== beforeMessages) changed = true;
+
+    for (const event of this.db.events) {
+      if (event.parentEventId != null && !eventIds.has(event.parentEventId)) {
+        event.parentEventId = null;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      console.warn('[file-store] repaired orphaned rows after non-cascade deletes');
+      this.persist();
+    }
   }
 
   /**

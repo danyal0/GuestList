@@ -386,7 +386,17 @@ export class AdminService {
     const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group) throw new NotFoundException('Community not found');
 
-    await this.prisma.group.delete({ where: { id: groupId } });
+    // Explicit dependents so file-mode (which historically lacked cascades) and
+    // Postgres both leave a consistent store. Schema cascades cover the rest.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.event.deleteMany({ where: { groupId } });
+      await tx.groupMember.deleteMany({ where: { groupId } });
+      await tx.follow.deleteMany({ where: { groupId } });
+      await tx.conversation.deleteMany({ where: { groupId } });
+      await tx.payment.updateMany({ where: { groupId }, data: { groupId: null } });
+      await tx.group.delete({ where: { id: groupId } });
+    });
+
     await this.auditService.log({
       actorId: adminId,
       action: 'admin.group_hard_delete',

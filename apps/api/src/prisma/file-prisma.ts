@@ -407,6 +407,76 @@ function shapeRow(
   return base;
 }
 
+/**
+ * Mirror Prisma onDelete rules that matter for file mode. Without this,
+ * hard-deleting a community leaves orphan events and the admin UI crashes
+ * on `event.group.name`.
+ */
+const CASCADE_DELETE: Record<string, Array<{ model: string; foreign: string }>> = {
+  group: [
+    { model: 'groupMember', foreign: 'groupId' },
+    { model: 'follow', foreign: 'groupId' },
+    { model: 'event', foreign: 'groupId' },
+    { model: 'conversation', foreign: 'groupId' },
+  ],
+  event: [{ model: 'rsvp', foreign: 'eventId' }],
+  conversation: [
+    { model: 'conversationParticipant', foreign: 'conversationId' },
+    { model: 'message', foreign: 'conversationId' },
+  ],
+  user: [
+    { model: 'refreshToken', foreign: 'userId' },
+    { model: 'emailToken', foreign: 'userId' },
+    { model: 'groupMember', foreign: 'userId' },
+    { model: 'follow', foreign: 'userId' },
+    { model: 'rsvp', foreign: 'userId' },
+    { model: 'conversationParticipant', foreign: 'userId' },
+    { model: 'friendship', foreign: 'requesterId' },
+    { model: 'friendship', foreign: 'addresseeId' },
+    { model: 'userBlock', foreign: 'blockerId' },
+    { model: 'userBlock', foreign: 'blockedId' },
+    { model: 'notification', foreign: 'userId' },
+    { model: 'activityLog', foreign: 'userId' },
+  ],
+};
+
+const SET_NULL_ON_DELETE: Record<string, Array<{ model: string; foreign: string }>> = {
+  group: [{ model: 'payment', foreign: 'groupId' }],
+  event: [{ model: 'event', foreign: 'parentEventId' }],
+  user: [
+    { model: 'report', foreign: 'resolvedById' },
+    { model: 'auditLog', foreign: 'actorId' },
+  ],
+};
+
+function cascadeDeleteById(model: string, id: string): void {
+  for (const rule of CASCADE_DELETE[model] ?? []) {
+    const collection = fileStore.collection(rule.model);
+    const toRemove: string[] = [];
+    for (const row of collection) {
+      const hydrated = fileStore.hydrate(row)!;
+      if (hydrated[rule.foreign] === id) {
+        toRemove.push(String(hydrated.id));
+      }
+    }
+    for (const childId of toRemove) {
+      cascadeDeleteById(rule.model, childId);
+      const idx = collection.findIndex((r) => r.id === childId);
+      if (idx >= 0) collection.splice(idx, 1);
+    }
+  }
+
+  for (const rule of SET_NULL_ON_DELETE[model] ?? []) {
+    const collection = fileStore.collection(rule.model);
+    for (let i = 0; i < collection.length; i += 1) {
+      const hydrated = fileStore.hydrate(collection[i])!;
+      if (hydrated[rule.foreign] === id) {
+        collection[i] = fileStore.dehydrate({ ...hydrated, [rule.foreign]: null });
+      }
+    }
+  }
+}
+
 function createNested(
   model: string,
   parentId: string,
@@ -684,19 +754,25 @@ function delegate(model: string) {
         matchesWhere(model, fileStore.hydrate(r)!, effectiveWhere),
       );
       if (idx < 0) notFound(model);
-      const [removed] = collection.splice(idx, 1);
+      const removed = fileStore.hydrate(collection[idx])!;
+      cascadeDeleteById(model, String(removed.id));
+      const removeIdx = collection.findIndex((r) => r.id === removed.id);
+      if (removeIdx >= 0) collection.splice(removeIdx, 1);
       fileStore.persist();
-      return fileStore.hydrate(removed);
+      return removed;
     },
 
     async deleteMany(args: Record<string, unknown> = {}) {
       const collection = fileStore.collection(model);
-      const keep: JsonRow[] = [];
-      let count = 0;
-      for (const row of collection) {
-        if (matchesWhere(model, fileStore.hydrate(row)!, args.where as Where)) count += 1;
-        else keep.push(row);
+      const removing = collection
+        .map((row) => fileStore.hydrate(row)!)
+        .filter((row) => matchesWhere(model, row, args.where as Where));
+      for (const row of removing) {
+        cascadeDeleteById(model, String(row.id));
       }
+      const removeIds = new Set(removing.map((r) => String(r.id)));
+      const keep = collection.filter((row) => !removeIds.has(String(row.id)));
+      const count = removing.length;
       collection.length = 0;
       collection.push(...keep);
       if (count) fileStore.persist();

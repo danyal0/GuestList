@@ -51,7 +51,7 @@ interface AdminGroup {
   memberCount: number;
   deletedAt: string | null;
   createdAt: string;
-  owner: { id: string; name: string; email: string | null };
+  owner: { id: string; name: string; email: string | null } | null;
   _count: { events: number; members: number };
 }
 
@@ -60,8 +60,8 @@ interface AdminEvent {
   title: string;
   status: string;
   startTime: string;
-  group: { id: string; name: string; slug: string };
-  host: { id: string; name: string };
+  group: { id: string; name: string; slug: string } | null;
+  host: { id: string; name: string } | null;
   _count: { rsvps: number };
 }
 
@@ -948,7 +948,9 @@ export default function AdminPage() {
                       <p className="font-semibold">{row.name}</p>
                       <p className="text-[13px] text-[var(--color-ink-tertiary)]">{row.category}</p>
                     </td>
-                    <td className="p-3 text-[var(--color-ink-secondary)]">{row.owner.name}</td>
+                    <td className="p-3 text-[var(--color-ink-secondary)]">
+                      {row.owner?.name ?? '—'}
+                    </td>
                     <td className="p-3">{row.memberCount}</td>
                     <td className="p-3">
                       {row.deletedAt ? (
@@ -1058,9 +1060,13 @@ export default function AdminPage() {
                     </td>
                     <td className="p-3">
                       <p className="font-semibold">{row.title}</p>
-                      <p className="text-[13px] text-[var(--color-ink-tertiary)]">{row.group.name}</p>
+                      <p className="text-[13px] text-[var(--color-ink-tertiary)]">
+                        {row.group?.name ?? 'Deleted community'}
+                      </p>
                     </td>
-                    <td className="p-3 text-[var(--color-ink-secondary)]">{row.host.name}</td>
+                    <td className="p-3 text-[var(--color-ink-secondary)]">
+                      {row.host?.name ?? '—'}
+                    </td>
                     <td className="p-3 text-[var(--color-ink-secondary)]">
                       {formatDate(row.startTime, { year: 'numeric' })}
                     </td>
