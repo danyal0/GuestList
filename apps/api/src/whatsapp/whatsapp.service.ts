@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
   ServiceUnavailableException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { NotificationType, RsvpStatus } from '@prisma/client';
@@ -32,6 +33,10 @@ import {
   findOrLinkWhatsappUser,
   resolveWhatsappDefaultGroup,
 } from './whatsapp-identity';
+import {
+  hasExplicitTimeCue,
+  validateWhatsappEventCreate,
+} from './whatsapp-event-validate';
 
 @Injectable()
 export class WhatsappService {
@@ -481,6 +486,36 @@ export class WhatsappService {
           `Reschedule cues present (conf=${rescheduleConfidence}) but no strong candidate — creating new event`,
         );
       }
+    }
+
+    const validation = validateWhatsappEventCreate({
+      messageBody,
+      title,
+      suggestedTime: body.suggestedTime,
+      venue: body.venue,
+      locationName: body.locationName,
+      address: body.address,
+      catalogVenue: catalog,
+      freeformLocation: catalog ? null : locationName,
+      startTime,
+      timezone,
+      timeWasExplicit: hasExplicitTimeCue(
+        messageBody,
+        body.suggestedTime,
+        body.title,
+      ),
+    });
+    if (!validation.ok) {
+      this.logger.warn(
+        `WhatsApp create rejected code=${validation.code} msg=${validation.message} body="${messageBody.slice(0, 120)}"`,
+      );
+      throw new UnprocessableEntityException({
+        error: 'Event validation failed',
+        code: validation.code,
+        message: validation.message,
+        hints: validation.hints,
+        details: validation.details ?? null,
+      });
     }
 
     this.logger.log(
