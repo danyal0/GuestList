@@ -177,6 +177,17 @@ export default function AdminPage() {
   const [membersGroupId, setMembersGroupId] = React.useState<string | null>(null);
   const [addMemberUserId, setAddMemberUserId] = React.useState('');
   const [addMemberRole, setAddMemberRole] = React.useState('MEMBER');
+  const [importIncludeRemote, setImportIncludeRemote] = React.useState(false);
+  const [importResult, setImportResult] = React.useState<{
+    accepted: number;
+    skippedRemote: number;
+    skippedInvalid: number;
+    createdGroups: number;
+    reusedGroups: number;
+    createdEvents: number;
+    updatedEvents: number;
+    samples: Array<{ title: string; group: string; location: string | null }>;
+  } | null>(null);
   const [confirm, setConfirm] = React.useState<{
     title: string;
     description: string;
@@ -528,6 +539,34 @@ export default function AdminPage() {
     onError,
   });
 
+  const importEvents = useMutation({
+    mutationFn: async (file: File) => {
+      const body = new FormData();
+      body.append('file', file);
+      const qs = importIncludeRemote ? '?includeRemote=1' : '';
+      return api<{
+        accepted: number;
+        skippedRemote: number;
+        skippedInvalid: number;
+        createdGroups: number;
+        reusedGroups: number;
+        createdEvents: number;
+        updatedEvents: number;
+        samples: Array<{ title: string; group: string; location: string | null }>;
+      }>(`/admin/import/events${qs}`, { method: 'POST', body });
+    },
+    onSuccess: (data) => {
+      setImportResult(data);
+      toast.success(
+        `Imported ${data.createdEvents} events` +
+          (data.updatedEvents ? ` · updated ${data.updatedEvents}` : '') +
+          (data.createdGroups ? ` · ${data.createdGroups} new communities` : ''),
+      );
+      invalidateAll();
+    },
+    onError,
+  });
+
   const toggleId = (set: Set<string>, id: string, next: Set<string>, setter: (s: Set<string>) => void) => {
     const copy = new Set(next);
     if (copy.has(id)) copy.delete(id);
@@ -608,6 +647,7 @@ export default function AdminPage() {
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="communities">Communities</TabsTrigger>
           <TabsTrigger value="events">Events</TabsTrigger>
+          <TabsTrigger value="import">Import</TabsTrigger>
           <TabsTrigger value="reports">
             Reports{reports.data && reports.data.total > 0 ? ` (${reports.data.total})` : ''}
           </TabsTrigger>
@@ -1120,6 +1160,88 @@ export default function AdminPage() {
               </tbody>
             </table>
           </div>
+        </TabsContent>
+
+        <TabsContent value="import" className="space-y-4">
+          <div className="rounded-[var(--radius-lg)] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-5">
+            <h2 className="text-[17px] font-bold tracking-tight">Import events</h2>
+            <p className="mt-1 max-w-2xl text-[14px] text-[var(--color-ink-secondary)]">
+              Upload a Meetup export or any event list as <strong>JSON</strong> or <strong>CSV</strong>.
+              We autofill communities, categories, venues, and times the same way as the Meetup seed —
+              Milwaukee-relevant rows by default.
+            </p>
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-[13px] text-[var(--color-ink-tertiary)]">
+              <li>
+                JSON array with fields like <code>Name</code>, <code>Date and Time</code>, <code>Link</code>,{' '}
+                <code>Image</code> (Meetup scraper format works)
+              </li>
+              <li>
+                CSV headers such as <code>title</code>, <code>start</code>, <code>community</code>,{' '}
+                <code>location</code>, <code>description</code>
+              </li>
+            </ul>
+
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <label className="inline-flex cursor-pointer items-center gap-2 text-[14px] font-semibold">
+                <input
+                  type="checkbox"
+                  checked={importIncludeRemote}
+                  onChange={(e) => setImportIncludeRemote(e.target.checked)}
+                />
+                Include out-of-market events
+              </label>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <Input
+                type="file"
+                accept=".json,.csv,application/json,text/csv"
+                aria-label="Event import file"
+                className="max-w-md"
+                disabled={importEvents.isPending}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (!file) return;
+                  importEvents.mutate(file);
+                }}
+              />
+              {importEvents.isPending ? (
+                <span className="text-[14px] text-[var(--color-ink-secondary)]">Importing…</span>
+              ) : null}
+            </div>
+          </div>
+
+          {importResult ? (
+            <div className="space-y-3 rounded-[var(--radius-lg)] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-5">
+              <h3 className="text-[15px] font-bold">Last import</h3>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <StatCard label="Accepted" value={importResult.accepted} />
+                <StatCard label="Created events" value={importResult.createdEvents} />
+                <StatCard label="Updated events" value={importResult.updatedEvents} />
+                <StatCard label="New communities" value={importResult.createdGroups} />
+                <StatCard label="Reused communities" value={importResult.reusedGroups} />
+                <StatCard label="Skipped remote" value={importResult.skippedRemote} />
+                <StatCard label="Skipped invalid" value={importResult.skippedInvalid} />
+              </div>
+              {importResult.samples.length > 0 ? (
+                <ul className="space-y-2 text-[14px]">
+                  {importResult.samples.map((sample) => (
+                    <li
+                      key={`${sample.title}-${sample.group}`}
+                      className="flex flex-wrap items-baseline justify-between gap-2 border-t border-[var(--color-hairline)] pt-2"
+                    >
+                      <span className="font-semibold">{sample.title}</span>
+                      <span className="text-[var(--color-ink-tertiary)]">
+                        {sample.group}
+                        {sample.location ? ` · ${sample.location}` : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
         </TabsContent>
 
         <TabsContent value="reports">

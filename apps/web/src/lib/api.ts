@@ -35,7 +35,7 @@ export async function api<T>(
   const method = (init.method ?? 'GET').toUpperCase();
 
   const headers = new Headers(init.headers);
-  if (init.body && !headers.has('Content-Type')) {
+  if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
