@@ -6,18 +6,18 @@ import { ThemeProvider } from 'next-themes';
 import { Toaster } from 'sonner';
 import { useAuthStore } from '@/stores/auth-store';
 import { getSocket, disconnectSocket } from '@/lib/socket';
-import { refreshSession } from '@/lib/api';
+import { restoreSession } from '@/lib/api';
 import { toast } from 'sonner';
 
 function SessionBootstrap({ children }: { children: React.ReactNode }) {
   const { setHydrated, clear, accessToken, user } = useAuthStore();
 
-  // Restore the session on first load via the refresh cookie.
+  // Restore the session on first load via access cookie (soft) or refresh.
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const ok = await refreshSession();
+        const ok = await restoreSession();
         if (cancelled) return;
         if (!ok) clear();
       } catch {

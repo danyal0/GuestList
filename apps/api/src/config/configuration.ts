@@ -22,11 +22,22 @@ export interface AppConfig {
     from: string;
   };
   uploads: { maxBytes: number };
+  /** Emails that should always receive platform ADMIN (comma-separated). */
+  adminEmails: string[];
+  /** Phones that should always receive platform ADMIN (comma-separated digits). */
+  adminPhones: string[];
 }
 
 const publicUrl = process.env.PUBLIC_URL || process.env.WEB_URL || DEFAULT_PUBLIC_URL;
 
 const nodeEnv = process.env.NODE_ENV ?? 'development';
+
+function splitList(value: string | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 export default (): AppConfig => ({
   nodeEnv,
@@ -56,4 +67,12 @@ export default (): AppConfig => ({
     from: process.env.MAIL_FROM ?? 'MKE Plays <no-reply@mkeplays.app>',
   },
   uploads: { maxBytes: Number(process.env.UPLOAD_MAX_BYTES ?? 5 * 1024 * 1024) },
+  adminEmails: [
+    'admin@mkeplays.app',
+    ...splitList(process.env.ADMIN_EMAILS).map((e) => e.toLowerCase()),
+  ],
+  adminPhones: [
+    '14145550001',
+    ...splitList(process.env.ADMIN_PHONES).map((p) => p.replace(/\D/g, '')).filter(Boolean),
+  ],
 });

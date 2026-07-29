@@ -46,8 +46,17 @@ Leave `NEXT_PUBLIC_API_URL` **unset** so Socket.IO uses the same origin.
 
 Password for all: `Passw0rd!`
 
+- Phone `4145550001` / `admin@mkeplays.app` — platform admin
 - `maya@example.com` — member
-- `admin@mkeplays.app` — platform admin
+
+To grant admin to your own account, set Railway env vars (comma-separated):
+
+| Variable | Example |
+| --- | --- |
+| `ADMIN_EMAILS` | `you@example.com` |
+| `ADMIN_PHONES` | `14145551234` |
+
+Those accounts are promoted to `ADMIN` automatically on login / session restore.
 
 ## 3. When you add Postgres
 

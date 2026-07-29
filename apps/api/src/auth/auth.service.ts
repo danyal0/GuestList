@@ -6,7 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ActivityType, EmailTokenType, User } from '@prisma/client';
+import { ActivityType, EmailTokenType, User, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
@@ -270,7 +270,7 @@ export class AuthService {
   }
 
   async login(identifier: string, password: string, meta: RequestMeta): Promise<AuthResult> {
-    const user = await this.findUserByIdentifier(identifier);
+    let user = await this.findUserByIdentifier(identifier);
     // Run a dummy hash verification on unknown accounts so response timing
     // does not reveal account existence.
     if (!user?.passwordHash) {
@@ -287,6 +287,7 @@ export class AuthService {
     }
 
     this.assertAccountUsable(user);
+    user = await this.ensureConfiguredAdmin(user);
 
     await this.prisma.activityLog.create({ data: { userId: user.id, type: ActivityType.LOGIN } });
     await this.auditService.log({ actorId: user.id, action: 'auth.login', ip: meta.ip });
@@ -323,7 +324,8 @@ export class AuthService {
 
   async refresh(refreshToken: string, meta: RequestMeta): Promise<AuthResult> {
     const { pair, userId } = await this.tokenService.rotate(refreshToken, meta);
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    let user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    user = await this.ensureConfiguredAdmin(user);
     return { user: this.toPublicUser(user), tokens: pair };
   }
 
@@ -396,12 +398,36 @@ export class AuthService {
   }
 
   async getMe(userId: string): Promise<PublicUser> {
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    let user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    user = await this.ensureConfiguredAdmin(user);
     return this.toPublicUser(user);
   }
 
   toPublicUser(user: User): PublicUser {
     return toAuthPublicUser(user) as PublicUser;
+  }
+
+  /**
+   * Promote accounts listed in ADMIN_EMAILS / ADMIN_PHONES (plus seed admin)
+   * so the platform owner can always reach /admin even if the file DB role drifted.
+   */
+  private async ensureConfiguredAdmin(user: User): Promise<User> {
+    if (user.role === UserRole.ADMIN) return user;
+    const emailsRaw = this.config.get<string[] | string>('adminEmails');
+    const phonesRaw = this.config.get<string[] | string>('adminPhones');
+    const emails = Array.isArray(emailsRaw) ? emailsRaw : [];
+    const phones = Array.isArray(phonesRaw) ? phonesRaw : [];
+    const email = user.email?.toLowerCase() ?? '';
+    const phone = normalizePhoneDigits(user.phone) ?? '';
+    const match =
+      (email && emails.includes(email)) ||
+      (phone && phones.some((p) => p === phone || p === preferCanonicalPhone(phone)));
+    if (!match) return user;
+
+    return this.prisma.user.update({
+      where: { id: user.id },
+      data: { role: UserRole.ADMIN },
+    });
   }
 
   private async upsertOAuthUser(identity: OAuthIdentity, meta: RequestMeta): Promise<AuthResult> {
@@ -439,6 +465,7 @@ export class AuthService {
     }
 
     this.assertAccountUsable(user);
+    user = await this.ensureConfiguredAdmin(user);
     await this.prisma.activityLog.create({ data: { userId: user.id, type: ActivityType.LOGIN } });
     await this.auditService.log({
       actorId: user.id,

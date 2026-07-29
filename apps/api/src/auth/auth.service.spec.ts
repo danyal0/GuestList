@@ -96,7 +96,17 @@ describe('AuthService', () => {
         { provide: OAuthService, useValue: { verifyGoogle: jest.fn(), verifyApple: jest.fn() } },
         { provide: MailService, useValue: mailService },
         { provide: AuditService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
-        { provide: ConfigService, useValue: { get: () => 'http://localhost:3000' } },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: (key: string) => {
+              if (key === 'webUrl') return 'http://localhost:3000';
+              if (key === 'adminEmails') return ['admin@mkeplays.app'];
+              if (key === 'adminPhones') return ['14145550001'];
+              return undefined;
+            },
+          },
+        },
       ],
     }).compile();
 

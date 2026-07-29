@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuthStore } from '@/stores/auth-store';
+import type { User } from '@/lib/types';
 
 export class ApiError extends Error {
   constructor(
@@ -18,6 +19,7 @@ function readCookie(name: string): string | undefined {
   return match ? decodeURIComponent(match[1]!) : undefined;
 }
 
+let restorePromise: Promise<boolean> | null = null;
 let refreshPromise: Promise<boolean> | null = null;
 
 /**
@@ -73,7 +75,34 @@ export async function api<T>(
   return response.json() as Promise<T>;
 }
 
-/** Shared session restore — used by Providers bootstrap and 401 retries. */
+/**
+ * Soft restore on boot: reuse a still-valid access cookie (no refresh rotation).
+ * Falls back to refresh-token rotation only when access is expired/missing.
+ */
+export async function restoreSession(): Promise<boolean> {
+  restorePromise ??= (async () => {
+    try {
+      const sessionRes = await fetch('/api/v1/auth/session', {
+        credentials: 'include',
+      });
+      if (sessionRes.ok) {
+        const data = (await sessionRes.json()) as { user: User; accessToken: string };
+        useAuthStore.getState().setSession(data.user, data.accessToken);
+        return true;
+      }
+      return refreshSession();
+    } catch {
+      return false;
+    } finally {
+      setTimeout(() => {
+        restorePromise = null;
+      }, 50);
+    }
+  })();
+  return restorePromise;
+}
+
+/** Rotate refresh token — used when access is expired and by 401 retries. */
 export async function refreshSession(): Promise<boolean> {
   // Deduplicate concurrent refreshes — rotation invalidates old tokens.
   refreshPromise ??= (async () => {

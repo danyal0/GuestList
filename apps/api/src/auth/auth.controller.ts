@@ -193,6 +193,29 @@ export class AuthController {
     return this.authService.getMe(user.id);
   }
 
+  /**
+   * Soft session restore: returns the current user + access token from the
+   * access cookie without rotating the refresh token. Prefer this on page
+   * load so Strict Mode / multi-tab reloads do not trigger reuse detection.
+   */
+  @Get('session')
+  async session(
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ): Promise<{ user: PublicUser; accessToken: string }> {
+    const cookieToken = (req.cookies ?? {})[ACCESS_COOKIE] as string | undefined;
+    const header = req.headers.authorization;
+    const bearer = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
+    const accessToken = cookieToken || bearer;
+    if (!accessToken) {
+      throw new UnauthorizedException('Missing access token');
+    }
+    return {
+      user: await this.authService.getMe(user.id),
+      accessToken,
+    };
+  }
+
   @Get('link-suggestions')
   async linkSuggestions(
     @CurrentUser() user: AuthUser,

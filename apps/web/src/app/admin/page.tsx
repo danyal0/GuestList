@@ -22,10 +22,13 @@ import { useAuthStore } from '@/stores/auth-store';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import Link from 'next/link';
+import { Shield } from 'lucide-react';
 
 interface AdminUser {
   id: string;
@@ -178,7 +181,10 @@ export default function AdminPage() {
   } | null>(null);
 
   React.useEffect(() => {
-    if (hydrated && (!user || user.role !== 'ADMIN')) router.replace('/');
+    if (!hydrated) return;
+    if (!user) {
+      router.replace('/login?next=/admin');
+    }
   }, [hydrated, user, router]);
 
   const enabled = user?.role === 'ADMIN';
@@ -411,7 +417,31 @@ export default function AdminPage() {
     setter(copy);
   };
 
-  if (!user || user.role !== 'ADMIN') return null;
+  if (!hydrated) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-48" />
+        <Skeleton className="h-24 w-full" />
+      </div>
+    );
+  }
+
+  if (!user) return null;
+
+  if (user.role !== 'ADMIN') {
+    return (
+      <EmptyState
+        icon={Shield}
+        title="Admin access required"
+        description="You’re signed in, but this account isn’t a platform admin. Sign in with the admin account, or ask an existing admin to promote you."
+        action={
+          <Button asChild>
+            <Link href="/login?next=/admin">Switch account</Link>
+          </Button>
+        }
+      />
+    );
+  }
 
   const d = detailed.data;
 
