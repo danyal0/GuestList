@@ -56,6 +56,9 @@ Base URL: `/api/v1` · Interactive Swagger docs at **`/api/docs`** (non-producti
 | POST | `/groups/:id/members/:userId/approve` · `/reject` · `/ban` · `/unban` | Member lifecycle (Admin+, outranking enforced) |
 | PATCH | `/groups/:id/members/:userId/role` | Promote/demote (Admin+) |
 
+| GET | `/suggestions/events?q=` | Autofill while creating events (past events, venues, heuristics, optional AI) |
+| GET | `/suggestions/groups?q=` | Autofill while creating communities |
+
 ## Events & RSVP
 
 | Method | Path | Description |

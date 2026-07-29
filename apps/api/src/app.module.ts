@@ -26,6 +26,7 @@ import { UploadsModule } from './uploads/uploads.module';
 import { MailModule } from './mail/mail.module';
 import { AuditModule } from './audit/audit.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { SuggestionsModule } from './suggestions/suggestions.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { CsrfGuard } from './common/guards/csrf.guard';
@@ -64,6 +65,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
     HealthModule,
     UploadsModule,
     WhatsappModule,
+    SuggestionsModule,
   ],
   providers: [
     // Order matters: throttling → authentication → CSRF → authorization.
