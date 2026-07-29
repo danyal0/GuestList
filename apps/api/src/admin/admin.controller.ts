@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags } from '@nestjs/swagger';
-import { GroupMemberRole, UserRole, FriendshipStatus } from '@prisma/client';
+import { GroupMemberRole, UserRole } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -23,6 +23,7 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsOptional,
   IsString,
   MaxLength,
@@ -79,8 +80,8 @@ class FriendshipsQueryDto extends PaginationDto {
   q?: string;
 
   @IsOptional()
-  @IsEnum(FriendshipStatus)
-  status?: FriendshipStatus;
+  @IsIn(['ACCEPTED', 'PENDING'])
+  status?: 'ACCEPTED' | 'PENDING';
 }
 
 @ApiTags('admin')
