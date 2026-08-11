@@ -282,6 +282,7 @@ export function buildEventDescription(parts: {
   courtInfo?: string | null;
   suggestedTime?: string | null;
   whatsappMessageId?: string | null;
+  relatedWhatsappMessageIds?: string[] | null;
   capacity?: number | null;
   namedAttendees?: string[] | null;
   mapsUrls?: string[] | null;
@@ -318,6 +319,14 @@ export function buildEventDescription(parts: {
   }
   if (parts.whatsappMessageId?.trim()) {
     blocks.push(`Source: WhatsApp message ${parts.whatsappMessageId.trim()}`);
+  }
+  const related = (parts.relatedWhatsappMessageIds || [])
+    .map((id) => String(id || '').trim())
+    .filter((id) => id && id !== parts.whatsappMessageId?.trim());
+  if (related.length) {
+    blocks.push(
+      `Related WhatsApp messages:\n${related.map((id) => `- ${id}`).join('\n')}`,
+    );
   }
   return blocks.join('\n\n');
 }
@@ -432,9 +441,20 @@ export function extractEventIdFromText(
 /** True when the message itself mentions a place (not inventable). */
 export function hasPlaceCue(messageBody: string | null | undefined): boolean {
   if (!messageBody?.trim()) return false;
-  return /\b(?:atwater|mckinley|lake\s*park|lake\s*front|lakefront|shorewood|lincoln\s+memorial|bradford|kenwood|court|park|school|venue)\b/i.test(
-    messageBody,
-  );
+  const text = messageBody;
+  if (
+    /\b(?:atwater|mckinley|lake\s*park|lake\s*front|lakefront|shorewood|lincoln\s+memorial|bradford|kenwood|humboldt|washington\s+park|wilson\s+park|hart\s+park|whitefish|court|courts|park|school|venue|elementary)\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  // Maps links / street addresses count as place cues (sport still defaults to tennis).
+  if (/maps\.app\.goo\.gl|google\.com\/maps|goo\.gl\/maps|maps\.google/i.test(text)) {
+    return true;
+  }
+  if (/\b\d{1,5}\s+[A-Za-z]/.test(text)) return true;
+  return false;
 }
 
 const PLACE_TOKENS = [

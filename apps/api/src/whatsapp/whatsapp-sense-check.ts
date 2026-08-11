@@ -3,6 +3,8 @@
  * Falls back to null when XAI_API_KEY is unset or the call fails (local assessor still runs).
  */
 
+import { formatStartForSenseCheck } from './whatsapp-time';
+
 export type AiSenseCheckResult = {
   makesSense: boolean;
   confidence: number;
@@ -24,7 +26,7 @@ export async function askAiEventSenseCheck(input: {
   title: string;
   venueName: string | null;
   venueSlug: string | null;
-  startTimeIso: string;
+  startTime: Date;
   timezone: string;
   changes?: { timeChanged: boolean; venueChanged: boolean } | null;
 }): Promise<AiSenseCheckResult | null> {
@@ -40,10 +42,14 @@ export async function askAiEventSenseCheck(input: {
     process.env.XAI_MODEL ||
     'grok-4-1-fast-non-reasoning-latest';
 
-  const system = `You are a final reviewer for MKE Plays WhatsApp sports meetups in Milwaukee.
+  const local = formatStartForSenseCheck(input.startTime, input.timezone);
+
+  const system = `You are a final reviewer for MKE Plays WhatsApp sports meetups in Milwaukee (default sport: tennis).
 Ask yourself: does this proposed event make sense? Are you confident it should be saved?
-Reject nonsense, incomplete plans, incompatible sport/venue (e.g. swimming at tennis courts), absurd times, or vague places.
-Accept clear tennis/pickleball/etc. meetups at known courts with a sensible time.
+Use startTimeLocal / localHour (venue timezone) — NEVER judge lateness from UTC/Z timestamps.
+Evening tennis around localHour 17–19 is normal and should be accepted.
+Reject nonsense, incomplete plans, incompatible sport/venue (e.g. swimming at tennis courts), absurd LOCAL times (e.g. localHour 2 or ≥22), or vague places.
+Accept clear tennis/pickleball meetups at known courts with a sensible local time. Maps links / street addresses in a tennis group still mean tennis.
 Return ONLY JSON: {"makesSense":true,"confidence":0.0,"reason":"short"}`;
 
   const user = JSON.stringify({
@@ -52,8 +58,12 @@ Return ONLY JSON: {"makesSense":true,"confidence":0.0,"reason":"short"}`;
     title: input.title,
     venueName: input.venueName,
     venueSlug: input.venueSlug,
-    startTime: input.startTimeIso,
     timezone: input.timezone,
+    startTimeLocal: local.startTimeLocal,
+    localHour: local.localHour,
+    localMinute: local.localMinute,
+    // UTC only for reference — do not use the hour for "too late" judgments.
+    startTimeUtc: local.startTimeUtc,
     changes: input.changes ?? null,
   });
 
@@ -88,14 +98,28 @@ Return ONLY JSON: {"makesSense":true,"confidence":0.0,"reason":"short"}`;
       reason?: string;
     };
     const confidence = clip(Number(parsed.confidence ?? 0));
-    const makesSense = Boolean(parsed.makesSense) && confidence >= 0.5;
+    let makesSense = Boolean(parsed.makesSense) && confidence >= 0.5;
+    let reason = String(
+      parsed.reason || (makesSense ? 'AI approved' : 'AI rejected'),
+    ).slice(0, 240);
+
+    // Safety net: models sometimes still misread UTC 23:00Z (6pm Chicago) as "too late".
+    if (
+      !makesSense &&
+      local.localHour >= 7 &&
+      local.localHour < 22 &&
+      /\b(23:00|22:00|too late|absurd).*(tennis|time|start)?|\b(utc|zulu)\b/i.test(
+        reason,
+      )
+    ) {
+      makesSense = true;
+      reason = `Ignored UTC-confused lateness check; localHour=${local.localHour} is fine (${reason})`;
+    }
+
     return {
       makesSense,
-      confidence: makesSense ? confidence : Math.min(confidence, 0.49),
-      reason: String(parsed.reason || (makesSense ? 'AI approved' : 'AI rejected')).slice(
-        0,
-        240,
-      ),
+      confidence: makesSense ? Math.max(confidence, 0.7) : Math.min(confidence, 0.49),
+      reason,
     };
   } catch {
     return null;

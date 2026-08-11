@@ -28,6 +28,30 @@ const {
   serializeWhatsappMessageId,
   extractSenderIdentity,
 } = require('./group-resolve');
+const {
+  createInviteContextStore,
+  draftIsComplete,
+  hasTimeCue,
+} = require('./invite-context');
+
+const inviteContext = createInviteContextStore();
+
+function hasPlaceCueLocal(text) {
+  if (!text || !String(text).trim()) return false;
+  const t = String(text);
+  if (
+    /\b(?:atwater|mckinley|lake\s*park|lake\s*front|lakefront|shorewood|lincoln\s+memorial|bradford|kenwood|humboldt|washington\s+park|wilson\s+park|hart\s+park|whitefish|court|courts|park|school|venue|elementary)\b/i.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  if (/maps\.app\.goo\.gl|google\.com\/maps|goo\.gl\/maps|maps\.google/i.test(t)) {
+    return true;
+  }
+  if (/\b\d{1,5}\s+[A-Za-z]/.test(t)) return true;
+  return false;
+}
 
 function loadVenuesCatalog() {
   const candidates = [
@@ -169,6 +193,8 @@ if (!XAI_API_KEY) {
  *   targetMessageId: string | null,
  *   quotedText?: string | null,
  *   targetEventId?: string | null,
+ *   recentMessages?: Array<{ sender: string, text: string }> | null,
+ *   pendingDraft?: object | null,
  * }} AnalyzePayload
  */
 
@@ -198,8 +224,12 @@ Critical local rules:
 - For TENNIS, casual "lake front" / "lakefront" means McKinley Tennis Courts (slug=mckinley-tennis-courts), NOT Lake Park.
 - "lake park" / Bradford / Kenwood → Lake Park Tennis Courts only when those words appear.
 - "atwater" / Shorewood Atwater → Atwater Elementary School courts (slug=atwater-elementary-tennis).
+- Default sport is TENNIS (this is a tennis WhatsApp group). Maps links / street addresses without the word "tennis" still mean tennis.
 - Timezone America/Chicago. Bare hours 1–8 without am/pm → prefer PM for tennis (6 → 6pm). Morning only if explicit.
-- suggestedTime: ISO-8601 with Chicago offset when possible.
+- Dayparts: morning→10:00, afternoon→14:00, evening/tonight→18:00 Chicago. NEVER map "evening" to 23:00.
+- suggestedTime: ISO-8601 with Chicago offset when possible (e.g. ...T18:00:00-05:00 for evening).
+- MULTI-MESSAGE CONTEXT: when recentMessages / pendingDraft are provided, MERGE venue + time across the thread. Example: "Anyone want to play tomorrow evening?" then later "what about Atwater?" → CREATE_EVENT with Atwater + tomorrow evening.
+- Do NOT invent a catalog venue when the message (and recent context) has no place cue.
 - capacity: prefer explicit party size from the message; else singles/doubles; else venue defaultCapacity from catalog. Set capacityConfidence honestly.
 - namedAttendees: first names of people the message says are going/playing (e.g. "Khatera and I are going" → ["Khatera"]). Do NOT include the sender.
 - isReschedule / rescheduleConfidence: set high when the host is changing a prior plan ("earlier than planned" is a strong clue). The API will update the existing event and notify RSVPs.
@@ -251,14 +281,16 @@ async function analyzeWithxAI(payload) {
     reaction: payload.reaction,
     quotedText: payload.quotedText ?? null,
     isReply: Boolean(payload.targetMessageId),
+    recentMessages: payload.recentMessages ?? [],
+    pendingDraft: payload.pendingDraft ?? null,
     nowAmericaChicago: nowChi,
     locale: 'Milwaukee, WI',
     hint:
       payload.kind === 'reaction'
         ? 'WhatsApp reaction on a prior message that may be a match invitation.'
         : payload.targetMessageId
-          ? 'WhatsApp reply to a prior tennis invite. Prefer cancel/reschedule of that invite over creating a new event. lake front → McKinley. Bare hour → PM.'
-          : 'WhatsApp tennis message in Milwaukee. Be strict. lake front → McKinley. Bare hour → PM. Cancel words → isCancel (do not create).',
+          ? 'WhatsApp reply to a prior tennis invite. Prefer cancel/reschedule of that invite over creating a new event. lake front → McKinley. Bare hour → PM. evening → 18:00 Chicago not 23:00.'
+          : 'WhatsApp tennis group in Milwaukee. Merge recentMessages/pendingDraft when planning spans multiple messages. Default sport=tennis. lake front → McKinley. Bare hour → PM. evening/tonight → 18:00. Cancel words → isCancel (do not create). Do not invent venues without a place cue.',
   });
 
   let response;
@@ -345,7 +377,19 @@ async function analyzeWithxAI(payload) {
  */
 async function ensureVenueConfidence(payload, analysis) {
   const x = analysis.extractedData;
-  const clue = [payload.text, x.venue, x.locationName, x.venueSlug, x.address]
+  const contextHay = [
+    payload.text,
+    ...(Array.isArray(payload.recentMessages)
+      ? payload.recentMessages.map((m) => m?.text)
+      : []),
+    payload.pendingDraft?.contextText,
+    payload.pendingDraft?.venue,
+    payload.pendingDraft?.locationName,
+    payload.pendingDraft?.venueSlug,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const clue = [payload.text, x.venue, x.locationName, x.venueSlug, x.address, contextHay]
     .filter(Boolean)
     .join(' ');
   const local = resolveCatalogFromClue(clue);
@@ -361,6 +405,24 @@ async function ensureVenueConfidence(payload, analysis) {
     console.log(
       `[whatsapp-bot] Catalog venue match alias="${local.matchedAlias}" → ${local.venue.slug}`,
     );
+    return analysis;
+  }
+
+  // Never invent a court when the thread has no place cue.
+  if (!hasPlaceCueLocal(contextHay)) {
+    if (x.venueSlug || x.venue || x.locationName || x.address) {
+      console.log(
+        '[whatsapp-bot] Dropping invented venue — no place cue in message/context',
+      );
+    }
+    x.venueSlug = null;
+    x.venue = null;
+    x.locationName = null;
+    x.address = null;
+    x.latitude = null;
+    x.longitude = null;
+    x.venueConfidence = 0;
+    x.addressConfidence = 0;
     return analysis;
   }
 
@@ -389,7 +451,9 @@ async function ensureVenueConfidence(payload, analysis) {
     }
 
     const again = resolveCatalogFromClue(
-      [payload.text, x.venueSlug, x.locationName, x.address].filter(Boolean).join(' '),
+      [payload.text, contextHay, x.venueSlug, x.locationName, x.address]
+        .filter(Boolean)
+        .join(' '),
     );
     if (again) {
       x.venueSlug = again.venue.slug;
@@ -908,8 +972,10 @@ async function postToApp(path, body) {
  * Route an analysis result to the correct Next.js API.
  * @param {AnalyzePayload} payload
  * @param {AnalysisResult} analysis
+ * @param {{ groupKey?: string }} [opts]
  */
-async function dispatchIntent(payload, analysis) {
+async function dispatchIntent(payload, analysis, opts = {}) {
+  const groupKey = opts.groupKey || groupResolver.getId() || 'default';
   const localCancel = detectCancelCuesLocal(payload.text);
   const localReschedule = detectRescheduleCuesLocal(payload.text);
   const clearCancel =
@@ -971,15 +1037,115 @@ async function dispatchIntent(payload, analysis) {
     };
   }
 
+  // Planning fragments (time without venue, or venue without time) → hold as draft.
+  const looksLikePlanning =
+    analysis.intent === 'CREATE_EVENT' ||
+    hasTimeCue(payload.text) ||
+    hasPlaceCueLocal(payload.text) ||
+    Boolean(analysis.extractedData?.venueSlug) ||
+    Boolean(analysis.extractedData?.suggestedTime);
+
+  if (looksLikePlanning && !clearCancel) {
+    inviteContext.mergeDraft(groupKey, analysis.extractedData, {
+      id: payload.whatsappMessageId,
+      text: payload.text,
+    });
+  }
+
+  if (analysis.intent === 'CREATE_EVENT' && !clearCancel && !clearReschedule && !replyTarget) {
+    const draft = inviteContext.get(groupKey).draft;
+    if (draft) {
+      // Fill missing extract fields from the rolling draft (multi-message planning).
+      const x = analysis.extractedData;
+      for (const key of [
+        'title',
+        'suggestedTime',
+        'venue',
+        'locationName',
+        'address',
+        'venueSlug',
+        'latitude',
+        'longitude',
+      ]) {
+        if ((x[key] == null || x[key] === '') && draft[key] != null && draft[key] !== '') {
+          x[key] = draft[key];
+        }
+      }
+      if (typeof draft.venueConfidence === 'number') {
+        x.venueConfidence = Math.max(x.venueConfidence || 0, draft.venueConfidence);
+      }
+      if (typeof draft.addressConfidence === 'number') {
+        x.addressConfidence = Math.max(x.addressConfidence || 0, draft.addressConfidence);
+      }
+      if (typeof draft.timeConfidence === 'number') {
+        x.timeConfidence = Math.max(x.timeConfidence || 0, draft.timeConfidence);
+      }
+
+      if (!draftIsComplete(draft)) {
+        console.log(
+          `[whatsapp-bot] Holding incomplete invite draft (need venue+time). venue=${x.venueSlug || x.venue || 'n/a'} time=${x.suggestedTime || 'n/a'}`,
+        );
+        return;
+      }
+
+      // Complete draft across messages → create with boosted confidence.
+      analysis.confidence = Math.max(analysis.confidence, 0.85);
+      console.log(
+        `[whatsapp-bot] Completing multi-message invite draft → slug=${x.venueSlug} time=${x.suggestedTime}`,
+      );
+    }
+  }
+
   if (analysis.intent === 'IGNORE' || analysis.confidence < MIN_CONFIDENCE) {
-    console.log(
-      `[whatsapp-bot] Ignoring (intent=${analysis.intent}, confidence=${analysis.confidence})`,
-    );
-    return;
+    // Venue-only follow-up with a complete draft should still create.
+    const draft = inviteContext.get(groupKey).draft;
+    if (
+      !clearCancel &&
+      draft &&
+      draftIsComplete(draft) &&
+      (hasPlaceCueLocal(payload.text) || hasTimeCue(payload.text))
+    ) {
+      console.log(
+        `[whatsapp-bot] Promoting complete draft after follow-up (was ${analysis.intent}/${analysis.confidence})`,
+      );
+      analysis = {
+        intent: 'CREATE_EVENT',
+        confidence: 0.9,
+        extractedData: {
+          ...analysis.extractedData,
+          title: analysis.extractedData.title || draft.title,
+          suggestedTime: analysis.extractedData.suggestedTime || draft.suggestedTime,
+          venue: analysis.extractedData.venue || draft.venue,
+          locationName: analysis.extractedData.locationName || draft.locationName,
+          address: analysis.extractedData.address || draft.address,
+          venueSlug: analysis.extractedData.venueSlug || draft.venueSlug,
+          latitude: analysis.extractedData.latitude ?? draft.latitude,
+          longitude: analysis.extractedData.longitude ?? draft.longitude,
+          venueConfidence: Math.max(
+            analysis.extractedData.venueConfidence || 0,
+            draft.venueConfidence || 0,
+          ),
+          addressConfidence: Math.max(
+            analysis.extractedData.addressConfidence || 0,
+            draft.addressConfidence || 0,
+          ),
+          timeConfidence: Math.max(
+            analysis.extractedData.timeConfidence || 0,
+            draft.timeConfidence || 0,
+          ),
+        },
+      };
+    } else {
+      console.log(
+        `[whatsapp-bot] Ignoring (intent=${analysis.intent}, confidence=${analysis.confidence})`,
+      );
+      return;
+    }
   }
 
   if (analysis.intent === 'CREATE_EVENT') {
     const x = analysis.extractedData;
+    const draft = inviteContext.get(groupKey).draft;
     const localNames = extractNamedAttendeesFromText(payload.text);
     const namedAttendees = [
       ...(Array.isArray(x.namedAttendees) ? x.namedAttendees : []),
@@ -1009,16 +1175,26 @@ async function dispatchIntent(payload, analysis) {
       payload.targetEventId ||
       extractAppEventIdFromText(payload.quotedText) ||
       extractAppEventIdFromText(payload.text);
+    const relatedWhatsappMessageIds = isCancel
+      ? []
+      : Array.isArray(draft?.relatedMessageIds)
+        ? draft.relatedMessageIds.filter((id) => id && id !== payload.whatsappMessageId)
+        : [];
+    const contextMessageBody =
+      !isCancel && draft?.contextText
+        ? draft.contextText
+        : payload.text ?? '';
     const body = {
       senderPhone: payload.senderPhone,
       senderLid: payload.senderLid ?? null,
       senderJid: payload.senderJid ?? null,
       senderName: payload.senderName ?? null,
-      messageBody: payload.text ?? '',
+      messageBody: contextMessageBody || payload.text || '',
       quotedText: payload.quotedText ?? null,
       whatsappMessageId: payload.whatsappMessageId,
       targetWhatsappMessageId: payload.targetMessageId,
       targetEventId,
+      relatedWhatsappMessageIds,
       title: isCancel ? null : x.title,
       suggestedTime: isCancel ? null : x.suggestedTime,
       venue: isCancel ? null : x.venue,
@@ -1062,13 +1238,19 @@ async function dispatchIntent(payload, analysis) {
     console.log(
       `[whatsapp-bot] CREATE_EVENT title=${body.title} slug=${body.venueSlug} capacity=${body.capacity} attendees=${JSON.stringify(body.namedAttendees)} cancel=${body.isCancel}/${body.cancelConfidence} reschedule=${body.isReschedule}/${body.rescheduleConfidence} replyTo=${body.targetWhatsappMessageId ?? 'n/a'} eventId=${body.targetEventId ?? 'n/a'} addr=${body.address} time=${body.suggestedTime} vConf=${body.venueConfidence} aConf=${body.addressConfidence}`,
     );
-    await postToApp('/api/whatsapp/create-event', body);
+    const result = await postToApp('/api/whatsapp/create-event', body);
+    if (result && result.ok && result.event && !result.cancelled) {
+      inviteContext.rememberInvite(groupKey, body.whatsappMessageId, [
+        body.whatsappMessageId,
+        ...relatedWhatsappMessageIds,
+      ]);
+    }
     return;
   }
 
   if (analysis.intent === 'RSVP_YES' || analysis.intent === 'RSVP_NO') {
-    const targetId =
-      payload.targetMessageId || payload.whatsappMessageId;
+    const rawTarget = payload.targetMessageId || payload.whatsappMessageId;
+    const targetId = inviteContext.resolveRsvpTarget(groupKey, rawTarget) || rawTarget;
     await postToApp('/api/whatsapp/rsvp', {
       whatsappMessageId: targetId,
       reactorPhone: payload.senderPhone,
@@ -1419,6 +1601,14 @@ client.on('message', async (message) => {
       extractAppEventIdFromText(quoted.text) ||
       extractAppEventIdFromText(message.body);
 
+    const groupKey = groupResolver.getId() || message.from || 'default';
+    inviteContext.pushMessage(groupKey, {
+      id: whatsappMessageId,
+      text: message.body || '',
+      senderName,
+      at: Date.now(),
+    });
+
     /** @type {AnalyzePayload} */
     const payload = {
       kind: 'message',
@@ -1432,6 +1622,8 @@ client.on('message', async (message) => {
       targetMessageId: quoted.id,
       quotedText: quoted.text,
       targetEventId,
+      recentMessages: inviteContext.recentForPrompt(groupKey),
+      pendingDraft: inviteContext.pendingDraftForPrompt(groupKey),
     };
 
     console.log(
@@ -1439,7 +1631,7 @@ client.on('message', async (message) => {
     );
 
     const analysis = await analyzeWithxAI(payload);
-    await dispatchIntent(payload, analysis);
+    await dispatchIntent(payload, analysis, { groupKey });
   } catch (err) {
     console.error('[whatsapp-bot] message handler error:', err);
   }
@@ -1530,22 +1722,29 @@ client.on('message_reaction', async (reaction) => {
       targetMessageId,
     };
 
+    const groupKey =
+      reactionChatId || groupResolver.getId() || 'default';
+
     // Thumbs-up / tennis-ball (and similar) short-circuit to RSVP without Grok.
     const shortcut = intentFromReactionEmoji(emoji);
     if (shortcut) {
       console.log(
         `[whatsapp-bot] Reaction shortcut ${emoji} → ${shortcut} lid=${senderLid ?? 'n/a'} phone=${senderPhone ?? 'n/a'}`,
       );
-      await dispatchIntent(payload, {
-        intent: shortcut,
-        confidence: 1,
-        extractedData: { title: null, suggestedTime: null, venue: null },
-      });
+      await dispatchIntent(
+        payload,
+        {
+          intent: shortcut,
+          confidence: 1,
+          extractedData: { title: null, suggestedTime: null, venue: null },
+        },
+        { groupKey },
+      );
       return;
     }
 
     const analysis = await analyzeWithxAI(payload);
-    await dispatchIntent(payload, analysis);
+    await dispatchIntent(payload, analysis, { groupKey });
   } catch (err) {
     console.error('[whatsapp-bot] message_reaction handler error:', err);
   }

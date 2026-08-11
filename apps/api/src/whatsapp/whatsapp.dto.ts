@@ -41,6 +41,11 @@ export class WhatsappCreateEventDto {
   quotedText?: string | null;
 
   @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  relatedWhatsappMessageIds?: string[] | null;
+
+  @IsOptional()
   @IsString()
   title?: string | null;
 
