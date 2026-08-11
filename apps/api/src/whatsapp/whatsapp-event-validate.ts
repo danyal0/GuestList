@@ -72,6 +72,25 @@ const COURT_COMPATIBLE_SPORTS = new Set<DetectedSport>([
 const TIME_CUE_RE =
   /\b(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\b|\b\d{4}-\d{2}-\d{2}t\d{2}:/i;
 
+/** Dayparts count as time cues for tennis invites ("tomorrow evening"). */
+const DAYPART_CUE_RE =
+  /\b(this\s+)?(morning|afternoon|evening|tonight|noon)\b/i;
+
+/** Default sport for this WhatsApp bridge (tennis group). */
+export function defaultWhatsappSport(): DetectedSport {
+  const raw = (process.env.WHATSAPP_DEFAULT_SPORT || 'TENNIS').trim().toUpperCase();
+  const allowed: DetectedSport[] = [
+    'TENNIS',
+    'PICKLEBALL',
+    'BASKETBALL',
+    'SOCCER',
+    'VOLLEYBALL',
+    'SWIMMING',
+    'OTHER',
+  ];
+  return (allowed.includes(raw as DetectedSport) ? raw : 'TENNIS') as DetectedSport;
+}
+
 /** Places that look like a venue mention but are not tennis-court catalog hits. */
 const NON_COURT_PLACE_RE =
   /\b(?:fiserv|forum|bradley\s+center|american\s+family|stadium|arena|gym|ymca|church|mall|restaurant|bar|cafe|coffee|brewery)\b/i;
@@ -106,7 +125,7 @@ export function hasExplicitTimeCue(
 ): boolean {
   const hay = parts.filter(Boolean).join(' ').trim();
   if (!hay) return false;
-  return TIME_CUE_RE.test(hay);
+  return TIME_CUE_RE.test(hay) || DAYPART_CUE_RE.test(hay);
 }
 
 export function venueOpenCloseHours(venue: CatalogVenue | null | undefined): {
@@ -196,7 +215,7 @@ export function validateWhatsappEventCreate(input: {
     input.locationName,
     input.address,
   ];
-  const sport = detectSportFromText(...textParts);
+  const sport = detectSportFromText(...textParts) ?? defaultWhatsappSport();
   const catalog = input.catalogVenue ?? null;
   const freeform = (input.freeformLocation || '').trim() || null;
   const timeExplicit =
@@ -336,7 +355,8 @@ export function assessEventSense(input: {
   const catalog = input.catalogVenue ?? null;
   const timeExplicit = Boolean(input.timeWasExplicit);
   const venueExplicit = Boolean(input.venueWasExplicit || catalog);
-  const sport = detectSportFromText(input.messageBody, input.title);
+  const detectedSport = detectSportFromText(input.messageBody, input.title);
+  const sport = detectedSport ?? (catalog ? defaultWhatsappSport() : null);
 
   if (catalog) {
     score += 0.35;
@@ -355,12 +375,14 @@ export function assessEventSense(input: {
     factors.push('time unchanged or defaulted');
   }
 
-  if (sport) {
+  if (detectedSport) {
     score += 0.12;
-    factors.push(`sport ${sport.toLowerCase()}`);
-  } else if (catalog) {
-    score += 0.08;
-    factors.push('sport inferred from court venue');
+    factors.push(`sport ${detectedSport.toLowerCase()}`);
+  } else if (catalog || sport) {
+    score += 0.1;
+    factors.push(
+      `sport default ${String(sport || defaultWhatsappSport()).toLowerCase()} (tennis group)`,
+    );
   }
 
   if (catalog && isWithinVenueHours(input.startTime, input.timezone, catalog)) {

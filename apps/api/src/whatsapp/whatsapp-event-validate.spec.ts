@@ -37,6 +37,11 @@ describe('hasExplicitTimeCue', () => {
     expect(hasExplicitTimeCue('tennis at Atwater')).toBe(false);
     expect(hasExplicitTimeCue('2026-07-30T02:00:00-05:00')).toBe(true);
   });
+
+  it('treats evening/afternoon dayparts as time cues', () => {
+    expect(hasExplicitTimeCue('tomorrow evening')).toBe(true);
+    expect(hasExplicitTimeCue('this afternoon')).toBe(true);
+  });
 });
 
 describe('isWithinVenueHours', () => {
@@ -104,7 +109,23 @@ describe('validateWhatsappEventCreate / proposal', () => {
       timeWasExplicit: true,
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe('INCOMPLETE');
+    // Tennis group defaults sport=TENNIS, so time-only → need a court.
+    if (!result.ok) expect(result.code).toBe('MISSING_VENUE');
+  });
+
+  it('accepts catalog venue + evening daypart without saying tennis', () => {
+    const result = validateWhatsappEventProposal({
+      mode: 'create',
+      messageBody:
+        'Anyone want to play tomorrow evening?\nwhat about the one near Atwater Elementary School..?',
+      catalogVenue: atwater,
+      startTime: evening,
+      timezone: 'America/Chicago',
+      timeWasExplicit: true,
+      venueWasExplicit: true,
+      botConfidence: 0.9,
+    });
+    expect(result).toEqual({ ok: true });
   });
 
   it('rejects sport + time without a known venue', () => {
