@@ -5,7 +5,9 @@ node_modules
 **/coverage
 **/test-results
 **/playwright-report
-apps/mobile
+apps/mobile/*
+!apps/mobile/package.json
+!apps/mobile/package-lock.json
 .git
 .github
 *.md
