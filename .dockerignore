@@ -11,5 +11,5 @@ apps/mobile
 *.md
 .env
 **/.env
-**/uploads
+/uploads
 terminals
